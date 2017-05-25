@@ -7,7 +7,7 @@
 
 Certinel is a Go library that makes it even easier to implement zero-hit
 TLS certificate changes by watching for certificate changes for you. The
-methods required by `tls.TLSConfig` are already implemented for you.
+methods required by `tls.Config` are already implemented for you.
 
 Right now there's support for listening to file system events on Linux,
 BSDs, and Windows using the [fsnotify][fsnotify] library.
@@ -17,7 +17,7 @@ BSDs, and Windows using the [fsnotify][fsnotify] library.
 ## Usage
 
 Create the certinel instance, start it with `Watch`, then pass the
-`GetCertificate` method to your `tls.TLSConfig` instance.
+`GetCertificate` method to your `tls.Config` instance.
 
 ```go
 package main
