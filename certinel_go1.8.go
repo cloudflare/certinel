@@ -10,8 +10,6 @@ import (
 // can be passed as the GetClientCertificate member in a tls.Config object. It is
 // safe to call across multiple goroutines.
 func (c *Certinel) GetClientCertificate(certificateRequest *tls.CertificateRequestInfo) (*tls.Certificate, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	return c.certificate, nil
+	cert, _ := c.certificate.Load().(*tls.Certificate)
+	return cert, nil
 }

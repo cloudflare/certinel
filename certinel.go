@@ -2,7 +2,7 @@ package certinel
 
 import (
 	"crypto/tls"
-	"sync"
+	"sync/atomic"
 )
 
 // Certinel is a container for zero-hit tls.Certificate changes, by
@@ -11,8 +11,7 @@ import (
 // Reading certificates from a Certinel instance is safe across multiple
 // goroutines.
 type Certinel struct {
-	mu          sync.RWMutex
-	certificate *tls.Certificate
+	certificate atomic.Value // *tls.Certificate
 	watcher     Watcher
 	errBack     func(error)
 }
@@ -45,7 +44,7 @@ func (c *Certinel) Watch() {
 		for {
 			select {
 			case certificate := <-tlsChan:
-				c.loadCertificate(certificate)
+				c.certificate.Store(&certificate)
 			case err := <-errChan:
 				c.errBack(err)
 			}
@@ -65,15 +64,6 @@ func (c *Certinel) Close() error {
 // can be passed as the GetCertificate member in a tls.Config object. It is
 // safe to call across multiple goroutines.
 func (c *Certinel) GetCertificate(clientHello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	return c.certificate, nil
-}
-
-func (c *Certinel) loadCertificate(certificate tls.Certificate) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.certificate = &certificate
+	cert, _ := c.certificate.Load().(*tls.Certificate)
+	return cert, nil
 }
