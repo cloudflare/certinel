@@ -108,3 +108,60 @@ func TestGetCertificateAfterChange(t *testing.T) {
 
 	watcher.AssertExpectations(t)
 }
+
+func BenchmarkGetCertificate(b *testing.B) {
+	tlsChan := make(chan tls.Certificate)
+	errChan := make(chan error)
+	cert := tls.Certificate{}
+	clientHello := &tls.ClientHelloInfo{}
+	watcher := &MockWatcher{}
+
+	subject := &Certinel{
+		watcher: watcher,
+		errBack: func(error) {},
+	}
+
+	watcher.On("Watch").Return(tlsChan, errChan)
+	watcher.On("Close").Return(nil)
+
+	subject.Watch()
+	tlsChan <- cert
+
+	for n := 0; n < b.N; n++ {
+		subject.GetCertificate(clientHello) // nolint: errcheck
+	}
+
+	subject.Close() // nolint: errcheck
+
+	watcher.AssertExpectations(b)
+}
+
+func BenchmarkGetCertificateParallel(b *testing.B) {
+	tlsChan := make(chan tls.Certificate)
+	errChan := make(chan error)
+	cert := tls.Certificate{}
+	watcher := &MockWatcher{}
+
+	subject := &Certinel{
+		watcher: watcher,
+		errBack: func(error) {},
+	}
+
+	watcher.On("Watch").Return(tlsChan, errChan)
+	watcher.On("Close").Return(nil)
+
+	subject.Watch()
+	tlsChan <- cert
+
+	b.RunParallel(func(pb *testing.PB) {
+		clientHello := &tls.ClientHelloInfo{}
+
+		for pb.Next() {
+			subject.GetCertificate(clientHello) // nolint: errcheck
+		}
+	})
+
+	subject.Close() // nolint: errcheck
+
+	watcher.AssertExpectations(b)
+}
