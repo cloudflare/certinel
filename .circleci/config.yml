@@ -1,0 +1,57 @@
+---
+version: 2.1
+
+executors:
+  go-build:
+    docker:
+      - image: quay.io/getpantheon/go-build:latest
+        auth:
+          username: $QUAY_USER
+          password: $QUAY_PASSWD
+commands:
+  save-go-mod-cache:
+    steps:
+      - save_cache:
+          key: v1-dependencies-{{ checksum "go.mod" }}
+          paths:
+            - /go/pkg/mod
+
+  restore-go-mod-cache:
+    steps:
+      - restore_cache:
+          keys:
+            - v1-dependencies-{{ checksum "go.mod" }}
+
+  save-workspace:
+    steps:
+      - persist_to_workspace:
+          root: .
+          paths:
+            - ./
+
+  restore-workspace:
+    steps:
+      - attach_workspace:
+          at: .
+
+jobs:
+  test:
+    executor: go-build
+    steps:
+      - checkout
+      - restore-go-mod-cache
+      # commands
+      - run: go get
+      - run: golangci-lint   run -E goimports -v
+      - run: go test -v ./pollwatcher/...
+      - run: go test -v ./fswatcher/...
+      - run: go test -v .
+      # persist
+      - save-go-mod-cache
+      - save-workspace
+
+workflows:
+  version: 2
+  primary:
+    jobs:
+      - test
