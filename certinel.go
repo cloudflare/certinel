@@ -50,8 +50,6 @@ func (c *Certinel) Watch() {
 			}
 		}
 	}()
-
-	return
 }
 
 // Close calls Close on the held Watcher instance. After closing it
