@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/pantheon-systems/certinel"
@@ -14,8 +15,15 @@ var interval = 5 * time.Second // NOTE: 5 seconds is fairly short for demonstrat
 // You should probably use a longer interval in production. One to five minutes sounds about right.
 
 func main() {
+	// logger is optional. If you don't want the certinel object to log, pass nil to certinel.New()
+	logger := log.New(os.Stderr, "", log.LstdFlags)
+
+	// example with logrus:
+	//logger := logrus.New()
+
 	watcher := pollwatcher.New("tls.crt", "tls.key", interval)
-	sentinel := certinel.New(watcher, func(err error) {
+
+	sentinel := certinel.New(watcher, logger, func(err error) {
 		log.Fatalf("error: certinel was unable to reload the certificate. err='%s'", err)
 	})
 
@@ -32,6 +40,6 @@ func main() {
 		},
 	}
 
-	log.Println("listening on 8000")
-	log.Fatal(server.ListenAndServeTLS("", ""))
+	logger.Println("listening on 8000")
+	logger.Fatal(server.ListenAndServeTLS("", ""))
 }

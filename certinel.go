@@ -5,6 +5,14 @@ import (
 	"sync/atomic"
 )
 
+type logger interface {
+	Printf(string, ...interface{})
+}
+
+type nullLogger struct{}
+
+func (l nullLogger) Printf(string, ...interface{}) {}
+
 // Certinel is a container for zero-hit tls.Certificate changes, by
 // receiving new certificates from sentries and presenting the functions
 // expected by Go's tls.Config{}.
@@ -14,6 +22,7 @@ type Certinel struct {
 	certificate atomic.Value // *tls.Certificate
 	watcher     Watcher
 	errBack     func(error)
+	log         logger
 }
 
 // Watchers provide a way to construct (and close!) channels that
@@ -24,14 +33,20 @@ type Watcher interface {
 }
 
 // New creates a Certinel that watches for changes with the provided
-// Watcher.
-func New(w Watcher, errBack func(error)) *Certinel {
+// Watcher. Takes an optional logger and errBack func. Both can be nil if you don't want to log
+// or handle errors.
+func New(w Watcher, log logger, errBack func(error)) *Certinel {
 	if errBack == nil {
 		errBack = func(error) {}
 	}
 
+	if log == nil {
+		log = nullLogger{}
+	}
+
 	return &Certinel{
 		watcher: w,
+		log:     log,
 		errBack: errBack,
 	}
 }
@@ -44,6 +59,7 @@ func (c *Certinel) Watch() {
 		for {
 			select {
 			case certificate := <-tlsChan:
+				c.log.Printf("Loading new certificate")
 				c.certificate.Store(&certificate)
 			case err := <-errChan:
 				c.errBack(err)

@@ -35,6 +35,7 @@ func TestGetCertificate(t *testing.T) {
 	subject := &Certinel{
 		watcher: watcher,
 		errBack: func(error) {},
+		log:     nullLogger{},
 	}
 
 	watcher.On("Watch").Return(tlsChan, errChan)
@@ -78,6 +79,7 @@ func TestGetCertificateAfterChange(t *testing.T) {
 	subject := &Certinel{
 		watcher: watcher,
 		errBack: func(error) {},
+		log:     nullLogger{},
 	}
 
 	watcher.On("Watch").Return(tlsChan, errChan)
