@@ -29,7 +29,7 @@ func New(cert, key string) (*Sentry, error) {
 		return nil, errors.Wrap(err, errCreateWatcher)
 	}
 
-	if err != nil {
+	if err != nil { // nolint: govet
 		return nil, errors.Wrap(err, errAddWatcher)
 	}
 
