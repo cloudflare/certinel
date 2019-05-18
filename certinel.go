@@ -59,7 +59,8 @@ func (c *Certinel) Watch() {
 		for {
 			select {
 			case certificate := <-tlsChan:
-				c.log.Printf("Loading new certificate")
+				c.log.Printf("Loading new certificate: Subject: '%s', NotBefore: '%s', NotAfter: '%s'",
+					certificate.Leaf.Subject, certificate.Leaf.NotBefore, certificate.Leaf.NotAfter)
 				c.certificate.Store(&certificate)
 			case err := <-errChan:
 				c.errBack(err)

@@ -2,6 +2,8 @@ package certinel
 
 import (
 	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"testing"
 	"time"
 
@@ -28,7 +30,16 @@ func (o *MockWatcher) Close() error {
 func TestGetCertificate(t *testing.T) {
 	tlsChan := make(chan tls.Certificate)
 	errChan := make(chan error)
-	cert := tls.Certificate{}
+	cert := tls.Certificate{
+		Certificate: [][]byte{
+			[]byte("Hello"),
+		},
+		Leaf: &x509.Certificate{
+			Subject:   pkix.Name{CommonName: "foo"},
+			NotBefore: time.Now(),
+			NotAfter:  time.Now(),
+		},
+	}
 	clientHello := &tls.ClientHelloInfo{}
 	watcher := &MockWatcher{}
 
@@ -67,10 +78,20 @@ func TestGetCertificateAfterChange(t *testing.T) {
 		Certificate: [][]byte{
 			[]byte("Hello"),
 		},
+		Leaf: &x509.Certificate{
+			Subject:   pkix.Name{CommonName: "cert1"},
+			NotBefore: time.Now(),
+			NotAfter:  time.Now(),
+		},
 	}
 	cert2 := tls.Certificate{
 		Certificate: [][]byte{
 			[]byte("Goodbye"),
+		},
+		Leaf: &x509.Certificate{
+			Subject:   pkix.Name{CommonName: "cert2"},
+			NotBefore: time.Now(),
+			NotAfter:  time.Now(),
 		},
 	}
 	clientHello := &tls.ClientHelloInfo{}
