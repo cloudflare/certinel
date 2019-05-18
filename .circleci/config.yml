@@ -46,6 +46,7 @@ jobs:
       - run: go test -v ./pollwatcher/...
       - run: go test -v ./fswatcher/...
       - run: go test -v .
+      - run: go test -run=XXX -bench=.
       # persist
       - save-go-mod-cache
       - save-workspace

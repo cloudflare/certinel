@@ -27,19 +27,25 @@ func (o *MockWatcher) Close() error {
 	return args.Error(0)
 }
 
-func TestGetCertificate(t *testing.T) {
-	tlsChan := make(chan tls.Certificate)
-	errChan := make(chan error)
-	cert := tls.Certificate{
+// makeDummyTLSCert returns just enough of a tls.Certficiate struct to be usable for
+// our tests cases
+func makeDummyTLSCert(cn string, start time.Time, end time.Time) tls.Certificate {
+	return tls.Certificate{
 		Certificate: [][]byte{
 			[]byte("Hello"),
 		},
 		Leaf: &x509.Certificate{
-			Subject:   pkix.Name{CommonName: "foo"},
-			NotBefore: time.Now(),
-			NotAfter:  time.Now(),
+			Subject:   pkix.Name{CommonName: cn},
+			NotBefore: start,
+			NotAfter:  end,
 		},
 	}
+}
+
+func TestGetCertificate(t *testing.T) {
+	tlsChan := make(chan tls.Certificate)
+	errChan := make(chan error)
+	cert := makeDummyTLSCert("foo", time.Now(), time.Now())
 	clientHello := &tls.ClientHelloInfo{}
 	watcher := &MockWatcher{}
 
@@ -74,26 +80,8 @@ func TestGetCertificate(t *testing.T) {
 func TestGetCertificateAfterChange(t *testing.T) {
 	tlsChan := make(chan tls.Certificate)
 	errChan := make(chan error)
-	cert1 := tls.Certificate{
-		Certificate: [][]byte{
-			[]byte("Hello"),
-		},
-		Leaf: &x509.Certificate{
-			Subject:   pkix.Name{CommonName: "cert1"},
-			NotBefore: time.Now(),
-			NotAfter:  time.Now(),
-		},
-	}
-	cert2 := tls.Certificate{
-		Certificate: [][]byte{
-			[]byte("Goodbye"),
-		},
-		Leaf: &x509.Certificate{
-			Subject:   pkix.Name{CommonName: "cert2"},
-			NotBefore: time.Now(),
-			NotAfter:  time.Now(),
-		},
-	}
+	cert1 := makeDummyTLSCert("cert1", time.Now(), time.Now())
+	cert2 := makeDummyTLSCert("cert2", time.Now(), time.Now())
 	clientHello := &tls.ClientHelloInfo{}
 	watcher := &MockWatcher{}
 
@@ -135,13 +123,14 @@ func TestGetCertificateAfterChange(t *testing.T) {
 func BenchmarkGetCertificate(b *testing.B) {
 	tlsChan := make(chan tls.Certificate)
 	errChan := make(chan error)
-	cert := tls.Certificate{}
+	cert := makeDummyTLSCert("cert", time.Now(), time.Now())
 	clientHello := &tls.ClientHelloInfo{}
 	watcher := &MockWatcher{}
 
 	subject := &Certinel{
 		watcher: watcher,
 		errBack: func(error) {},
+		log:     nullLogger{},
 	}
 
 	watcher.On("Watch").Return(tlsChan, errChan)
@@ -162,12 +151,13 @@ func BenchmarkGetCertificate(b *testing.B) {
 func BenchmarkGetCertificateParallel(b *testing.B) {
 	tlsChan := make(chan tls.Certificate)
 	errChan := make(chan error)
-	cert := tls.Certificate{}
+	cert := makeDummyTLSCert("cert", time.Now(), time.Now())
 	watcher := &MockWatcher{}
 
 	subject := &Certinel{
 		watcher: watcher,
 		errBack: func(error) {},
+		log:     nullLogger{},
 	}
 
 	watcher.On("Watch").Return(tlsChan, errChan)
