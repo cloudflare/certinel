@@ -50,8 +50,35 @@ jobs:
       - save-go-mod-cache
       - save-workspace
 
+  tag-version:
+    executor: go-build
+    steps:
+      - restore-workspace
+      # commands
+      - run: |
+          curl -s https://api.github.com/repos/pantheon-systems/autotag/releases/latest | \
+            grep browser_download | \
+            grep -i linux | \
+            cut -d '"' -f 4 | \
+            xargs curl -o ~/autotag -L \
+            && chmod 755 ~/autotag
+      - run: ~/autotag
+      - run: |
+          # stdout and stderr redirected to null to prevent leaking the token on error.
+          # to debug failures re-run this job with ssh
+          git push -q --tags \
+            --repo=https://${GITHUB_TOKEN}@github.com/pantheon-systems/certinel \
+            >/dev/null 2>&1
+
 workflows:
   version: 2
   primary:
     jobs:
       - test
+      - tag-version:
+          requires:
+            - test
+          filters:
+            branches:
+              only:
+                - master
