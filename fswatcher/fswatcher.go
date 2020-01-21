@@ -29,7 +29,7 @@ func New(cert, key string) (*Sentry, error) {
 		return nil, errors.Wrap(err, errCreateWatcher)
 	}
 
-	if err != nil {
+	if err = watcher.Add(cert); err != nil {
 		return nil, errors.Wrap(err, errAddWatcher)
 	}
 
@@ -37,35 +37,38 @@ func New(cert, key string) (*Sentry, error) {
 		fsnotify: watcher,
 		certPath: cert,
 		keyPath:  key,
-		tlsChan:  make(chan tls.Certificate),
+		tlsChan:  make(chan tls.Certificate, 1),
 		errChan:  make(chan error),
 	}
 
-	go func() {
-		for {
-			select {
-			case event := <-watcher.Events:
-				if event.Op&fsnotify.Write == fsnotify.Write {
-					fsw.loadCertificate()
-				}
-			case err := <-watcher.Errors:
-				fsw.errChan <- err
-			}
-		}
-	}()
+	tls, err := fsw.loadCertificate()
+	if err != nil {
+		return nil, err
+	}
+	fsw.tlsChan <- tls
 
 	return fsw, nil
 }
 
 func (w *Sentry) Watch() (<-chan tls.Certificate, <-chan error) {
 	go func() {
-		w.loadCertificate()
-		err := w.fsnotify.Add(w.certPath)
-
-		if err != nil {
-			w.errChan <- err
+		for {
+			select {
+			case event := <-w.fsnotify.Events:
+				if event.Op&fsnotify.Write == fsnotify.Write {
+					cert, err := w.loadCertificate()
+					if err != nil {
+						w.errChan <- err
+					} else {
+						w.tlsChan <- cert
+					}
+				}
+			case err := <-w.fsnotify.Errors:
+				w.errChan <- err
+			}
 		}
 	}()
+
 	return w.tlsChan, w.errChan
 }
 
@@ -77,20 +80,18 @@ func (w *Sentry) Close() error {
 	return err
 }
 
-func (w *Sentry) loadCertificate() {
+func (w *Sentry) loadCertificate() (tls.Certificate, error) {
 	certificate, err := tls.LoadX509KeyPair(w.certPath, w.keyPath)
 	if err != nil {
-		w.errChan <- errors.Wrap(err, errLoadCertificate)
-		return
+		return tls.Certificate{}, errors.Wrap(err, errLoadCertificate)
 	}
 
 	leaf, err := x509.ParseCertificate(certificate.Certificate[0])
 	if err != nil {
-		w.errChan <- errors.Wrap(err, errLoadCertificate)
-		return
+		return tls.Certificate{}, errors.Wrap(err, errLoadCertificate)
 	}
 
 	certificate.Leaf = leaf
 
-	w.tlsChan <- certificate
+	return certificate, nil
 }
