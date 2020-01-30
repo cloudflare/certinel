@@ -1,12 +1,24 @@
 language: go
 
 go:
-  - 1.7.x
-  - 1.8.x
+  - 1.9.x
+  - 1.10.x
+  - 1.11.x
+  - 1.12.x
+  - 1.13.x
+
+jobs:
+  include:
+    - go: 1.13.x
+      script:
+        - curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.23.1
+        - golangci-lint run
+
+env:
+  - GO111MODULE=on
 
 install:
-  - go get github.com/Masterminds/glide
-  - glide install
+  - go get -d -t ./...
 
 script:
-  - go test -v $(glide nv)
+  - go test -v ./...

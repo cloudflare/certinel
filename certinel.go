@@ -41,6 +41,7 @@ func New(w Watcher, errBack func(error)) *Certinel {
 func (c *Certinel) Watch() {
 	go func() {
 		tlsChan, errChan := c.watcher.Watch()
+
 		for {
 			select {
 			case certificate := <-tlsChan:
@@ -50,8 +51,6 @@ func (c *Certinel) Watch() {
 			}
 		}
 	}()
-
-	return
 }
 
 // Close calls Close on the held Watcher instance. After closing it
@@ -64,6 +63,14 @@ func (c *Certinel) Close() error {
 // can be passed as the GetCertificate member in a tls.Config object. It is
 // safe to call across multiple goroutines.
 func (c *Certinel) GetCertificate(clientHello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+	cert, _ := c.certificate.Load().(*tls.Certificate)
+	return cert, nil
+}
+
+// GetClientCertificate returns the current tls.Certificate instance. The function
+// can be passed as the GetClientCertificate member in a tls.Config object. It is
+// safe to call across multiple goroutines.
+func (c *Certinel) GetClientCertificate(certificateRequest *tls.CertificateRequestInfo) (*tls.Certificate, error) {
 	cert, _ := c.certificate.Load().(*tls.Certificate)
 	return cert, nil
 }

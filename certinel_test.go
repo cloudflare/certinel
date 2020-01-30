@@ -13,7 +13,7 @@ type MockWatcher struct {
 	mock.Mock
 }
 
-func (o *MockWatcher) Watch() (<-chan tls.Certificate, <-chan error) {
+func (o *MockWatcher) Watch() (certCh <-chan tls.Certificate, errCh <-chan error) {
 	args := o.Called()
 
 	return args.Get(0).(chan tls.Certificate), args.Get(1).(chan error)
@@ -47,6 +47,7 @@ func TestGetCertificate(t *testing.T) {
 
 	subject.Watch()
 	tlsChan <- cert
+
 	<-time.After(time.Duration(1) * time.Millisecond)
 
 	gotCert, err = subject.GetCertificate(clientHello)
@@ -90,6 +91,7 @@ func TestGetCertificateAfterChange(t *testing.T) {
 
 	subject.Watch()
 	tlsChan <- cert1
+
 	<-time.After(time.Duration(1) * time.Millisecond)
 
 	gotCert, err = subject.GetCertificate(clientHello)
@@ -98,7 +100,9 @@ func TestGetCertificateAfterChange(t *testing.T) {
 	}
 
 	tlsChan <- cert2
+
 	<-time.After(time.Duration(1) * time.Millisecond)
+
 	gotCert, err = subject.GetCertificate(clientHello)
 	if assert.NoError(t, err) {
 		assert.Equal(t, cert2, *gotCert)

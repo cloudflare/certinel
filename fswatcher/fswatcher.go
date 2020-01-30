@@ -57,7 +57,7 @@ func New(cert, key string) (*Sentry, error) {
 	return fsw, nil
 }
 
-func (w *Sentry) Watch() (<-chan tls.Certificate, <-chan error) {
+func (w *Sentry) Watch() (certCh <-chan tls.Certificate, errCh <-chan error) {
 	go func() {
 		w.loadCertificate()
 		err := w.fsnotify.Add(w.certPath)
@@ -66,6 +66,7 @@ func (w *Sentry) Watch() (<-chan tls.Certificate, <-chan error) {
 			w.errChan <- err
 		}
 	}()
+
 	return w.tlsChan, w.errChan
 }
 
@@ -74,6 +75,7 @@ func (w *Sentry) Close() error {
 
 	close(w.tlsChan)
 	close(w.errChan)
+
 	return err
 }
 
