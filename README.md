@@ -52,6 +52,3 @@ func main() {
 	server.ListenAndServeTLS("", "")
 }
 ```
-
-On Go 1.8+, `GetClientCertificate` is also implemented to support
-rotating the client certificate.
