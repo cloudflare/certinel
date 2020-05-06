@@ -40,7 +40,10 @@ func TestGetCertificate(t *testing.T) {
 	}
 
 	watcher.On("Watch").Return(tlsChan, errChan)
-	watcher.On("Close").Return(nil)
+	watcher.On("Close").Return(nil).Run(func(args mock.Arguments) {
+		close(tlsChan)
+		close(errChan)
+	})
 
 	gotCert, err := subject.GetCertificate(clientHello)
 	if assert.NoError(t, err) {
@@ -84,7 +87,10 @@ func TestGetCertificateAfterChange(t *testing.T) {
 	}
 
 	watcher.On("Watch").Return(tlsChan, errChan)
-	watcher.On("Close").Return(nil)
+	watcher.On("Close").Return(nil).Run(func(args mock.Arguments) {
+		close(tlsChan)
+		close(errChan)
+	})
 
 	gotCert, err := subject.GetCertificate(clientHello)
 	if assert.NoError(t, err) {
@@ -128,7 +134,10 @@ func BenchmarkGetCertificate(b *testing.B) {
 	}
 
 	watcher.On("Watch").Return(tlsChan, errChan)
-	watcher.On("Close").Return(nil)
+	watcher.On("Close").Return(nil).Run(func(args mock.Arguments) {
+		close(tlsChan)
+		close(errChan)
+	})
 
 	subject.Watch()
 	tlsChan <- cert
@@ -154,7 +163,10 @@ func BenchmarkGetCertificateParallel(b *testing.B) {
 	}
 
 	watcher.On("Watch").Return(tlsChan, errChan)
-	watcher.On("Close").Return(nil)
+	watcher.On("Close").Return(nil).Run(func(args mock.Arguments) {
+		close(tlsChan)
+		close(errChan)
+	})
 
 	subject.Watch()
 	tlsChan <- cert
@@ -209,17 +221,16 @@ func TestClose(t *testing.T) {
 	}
 
 	// Close the sentinel and wait for the watch goroutine to exit.
-	err := sentinel.Close()
-	if err != nil {
+	if err := sentinel.Close(); err != nil {
 		t.Error(err)
-	}
-
-	for i := 0; runtime.NumGoroutine() > goCount && i < 10; i++ {
-		runtime.Gosched()
-		time.Sleep(10 * time.Millisecond)
 	}
 
 	if n := runtime.NumGoroutine(); n > goCount {
 		t.Errorf("expected %v goroutines, found %v", goCount, n)
+	}
+
+	// Subsequent calls to Close return nil and do not panic.
+	if err := sentinel.Close(); err != nil {
+		t.Error(err)
 	}
 }

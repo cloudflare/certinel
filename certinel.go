@@ -2,6 +2,7 @@ package certinel
 
 import (
 	"crypto/tls"
+	"sync"
 	"sync/atomic"
 )
 
@@ -14,6 +15,9 @@ type Certinel struct {
 	certificate atomic.Value // *tls.Certificate
 	watcher     Watcher
 	errBack     func(error)
+	watchOnce   sync.Once
+	closeOnce   sync.Once
+	done        chan struct{}
 }
 
 // Watchers provide a way to construct (and close!) channels that
@@ -39,32 +43,47 @@ func New(w Watcher, errBack func(error)) *Certinel {
 // Watch setups the Certinel's channel handles and calls Watch on the
 // held Watcher instance.
 func (c *Certinel) Watch() {
-	go func() {
-		tlsChan, errChan := c.watcher.Watch()
+	c.watchOnce.Do(func() {
+		c.done = make(chan struct{})
+		go func() {
+			defer close(c.done)
+			tlsChan, errChan := c.watcher.Watch()
 
-		for tlsChan != nil && errChan != nil {
-			select {
-			case certificate, ok := <-tlsChan:
-				if ok {
-					c.certificate.Store(&certificate)
-				} else {
-					tlsChan = nil
-				}
-			case err, ok := <-errChan:
-				if ok {
-					c.errBack(err)
-				} else {
-					errChan = nil
+			for tlsChan != nil && errChan != nil {
+				select {
+				case certificate, ok := <-tlsChan:
+					if ok {
+						c.certificate.Store(&certificate)
+					} else {
+						tlsChan = nil
+					}
+				case err, ok := <-errChan:
+					if ok {
+						c.errBack(err)
+					} else {
+						errChan = nil
+					}
 				}
 			}
-		}
-	}()
+		}()
+	})
 }
 
 // Close calls Close on the held Watcher instance. After closing it
 // is no longer safe to use this Certinel instance.
-func (c *Certinel) Close() error {
-	return c.watcher.Close()
+func (c *Certinel) Close() (err error) {
+	// Prevent Watch after Close, since it launches the watcher routine.
+	c.watchOnce.Do(func() {})
+
+	c.closeOnce.Do(func() {
+		err = c.watcher.Close()
+	})
+
+	if c.done != nil {
+		<-c.done
+	}
+
+	return err
 }
 
 // GetCertificate returns the current tls.Certificate instance. The function
