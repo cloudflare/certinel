@@ -2,6 +2,7 @@ package certinel
 
 import (
 	"crypto/tls"
+	"errors"
 	"testing"
 	"time"
 
@@ -34,11 +35,15 @@ func TestGetCertificate(t *testing.T) {
 
 	subject := &Certinel{
 		watcher: watcher,
+		done:    make(chan struct{}),
 		errBack: func(error) {},
 	}
 
 	watcher.On("Watch").Return(tlsChan, errChan)
-	watcher.On("Close").Return(nil)
+	watcher.On("Close").Return(nil).Run(func(args mock.Arguments) {
+		close(tlsChan)
+		close(errChan)
+	})
 
 	gotCert, err := subject.GetCertificate(clientHello)
 	if assert.NoError(t, err) {
@@ -78,11 +83,15 @@ func TestGetCertificateAfterChange(t *testing.T) {
 
 	subject := &Certinel{
 		watcher: watcher,
+		done:    make(chan struct{}),
 		errBack: func(error) {},
 	}
 
 	watcher.On("Watch").Return(tlsChan, errChan)
-	watcher.On("Close").Return(nil)
+	watcher.On("Close").Return(nil).Run(func(args mock.Arguments) {
+		close(tlsChan)
+		close(errChan)
+	})
 
 	gotCert, err := subject.GetCertificate(clientHello)
 	if assert.NoError(t, err) {
@@ -122,11 +131,15 @@ func BenchmarkGetCertificate(b *testing.B) {
 
 	subject := &Certinel{
 		watcher: watcher,
+		done:    make(chan struct{}),
 		errBack: func(error) {},
 	}
 
 	watcher.On("Watch").Return(tlsChan, errChan)
-	watcher.On("Close").Return(nil)
+	watcher.On("Close").Return(nil).Run(func(args mock.Arguments) {
+		close(tlsChan)
+		close(errChan)
+	})
 
 	subject.Watch()
 	tlsChan <- cert
@@ -140,6 +153,48 @@ func BenchmarkGetCertificate(b *testing.B) {
 	watcher.AssertExpectations(b)
 }
 
+func TestClose(t *testing.T) {
+	// Set up a mock watcher and notification channels.
+	tlsChan := make(chan tls.Certificate)
+	errChan := make(chan error)
+	watcher := &MockWatcher{}
+	watcher.On("Watch").Return(tlsChan, errChan)
+	watcher.On("Close").Return(nil).Run(func(args mock.Arguments) {
+		close(tlsChan)
+		close(errChan)
+	})
+
+	// Prepare the sentinel over the mock watcher.
+	done := make(chan struct{})
+	sentinel := &Certinel{
+		watcher: watcher,
+		done:    make(chan struct{}),
+		errBack: func(err error) {
+			if err == nil {
+				t.Error("nil error provided to callback")
+			} else {
+				close(done)
+			}
+		},
+	}
+
+	// Start the watch goroutine and test it propagates errors.
+	sentinel.Watch()
+
+	errChan <- errors.New("error")
+	select {
+	case <-time.After(time.Second):
+		t.Errorf("never received error")
+	case <-done:
+	}
+
+	// Close the sentinel and wait for the watch goroutine to exit.
+	err := sentinel.Close()
+	if err != nil {
+		t.Error(err)
+	}
+}
+
 func BenchmarkGetCertificateParallel(b *testing.B) {
 	tlsChan := make(chan tls.Certificate)
 	errChan := make(chan error)
@@ -148,11 +203,15 @@ func BenchmarkGetCertificateParallel(b *testing.B) {
 
 	subject := &Certinel{
 		watcher: watcher,
+		done:    make(chan struct{}),
 		errBack: func(error) {},
 	}
 
 	watcher.On("Watch").Return(tlsChan, errChan)
-	watcher.On("Close").Return(nil)
+	watcher.On("Close").Return(nil).Run(func(args mock.Arguments) {
+		close(tlsChan)
+		close(errChan)
+	})
 
 	subject.Watch()
 	tlsChan <- cert

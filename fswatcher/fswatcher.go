@@ -12,8 +12,24 @@ type Sentry struct {
 	fsnotify *fsnotify.Watcher
 	certPath string
 	keyPath  string
-	tlsChan  chan tls.Certificate
-	errChan  chan error
+
+	// out channels are the channels returned by Watch
+	// and represent part of the public API. They are expected
+	// to be closed by clients.
+	outTLSCh chan tls.Certificate
+	outErrCh chan error
+
+	// int channels coordinate multiple senders to the
+	// out channels. They are not closed.
+	intTLSCh chan tls.Certificate
+	intErrCh chan error
+
+	// closingCh signals to the coordination goroutine
+	// that the out channels should be closed.
+	closingCh chan struct{}
+
+	// closedch signals that out channels are closed.
+	closedCh chan struct{}
 }
 
 const (
@@ -34,25 +50,19 @@ func New(cert, key string) (*Sentry, error) {
 	}
 
 	fsw := &Sentry{
-		fsnotify: watcher,
-		certPath: cert,
-		keyPath:  key,
-		tlsChan:  make(chan tls.Certificate),
-		errChan:  make(chan error),
+		fsnotify:  watcher,
+		certPath:  cert,
+		keyPath:   key,
+		outTLSCh:  make(chan tls.Certificate),
+		outErrCh:  make(chan error),
+		intTLSCh:  make(chan tls.Certificate),
+		intErrCh:  make(chan error),
+		closingCh: make(chan struct{}),
+		closedCh:  make(chan struct{}),
 	}
 
-	go func() {
-		for {
-			select {
-			case event := <-watcher.Events:
-				if event.Op&fsnotify.Write == fsnotify.Write {
-					fsw.loadCertificate()
-				}
-			case err := <-watcher.Errors:
-				fsw.errChan <- err
-			}
-		}
-	}()
+	go fsw.runCoordination()
+	go fsw.runNotifyHandler(watcher)
 
 	return fsw, nil
 }
@@ -63,18 +73,32 @@ func (w *Sentry) Watch() (certCh <-chan tls.Certificate, errCh <-chan error) {
 		err := w.fsnotify.Add(w.certPath)
 
 		if err != nil {
-			w.errChan <- err
+			select {
+			case <-w.closedCh:
+				return
+			default:
+			}
+
+			select {
+			case <-w.closedCh:
+				return
+			case w.intErrCh <- err:
+			}
 		}
 	}()
 
-	return w.tlsChan, w.errChan
+	return w.outTLSCh, w.outErrCh
 }
 
 func (w *Sentry) Close() error {
-	err := w.fsnotify.Close()
+	select {
+	case <-w.closedCh:
+		return nil
+	default:
+	}
 
-	close(w.tlsChan)
-	close(w.errChan)
+	err := w.fsnotify.Close()
+	w.stop()
 
 	return err
 }
@@ -82,17 +106,110 @@ func (w *Sentry) Close() error {
 func (w *Sentry) loadCertificate() {
 	certificate, err := tls.LoadX509KeyPair(w.certPath, w.keyPath)
 	if err != nil {
-		w.errChan <- errors.Wrap(err, errLoadCertificate)
+		err = errors.Wrap(err, errLoadCertificate)
+		select {
+		case <-w.closedCh:
+			return
+		default:
+		}
+
+		select {
+		case <-w.closedCh:
+			return
+		case w.intErrCh <- err:
+		}
+
 		return
 	}
 
 	leaf, err := x509.ParseCertificate(certificate.Certificate[0])
 	if err != nil {
-		w.errChan <- errors.Wrap(err, errLoadCertificate)
+		err = errors.Wrap(err, errLoadCertificate)
+		select {
+		case <-w.closedCh:
+			return
+		default:
+		}
+
+		select {
+		case <-w.closedCh:
+			return
+		case w.outErrCh <- err:
+		}
+
 		return
 	}
 
 	certificate.Leaf = leaf
 
-	w.tlsChan <- certificate
+	w.outTLSCh <- certificate
+}
+
+func (w *Sentry) runCoordination() {
+	stop := func() {
+		close(w.closedCh)
+		close(w.outTLSCh)
+		close(w.outErrCh)
+	}
+
+	for {
+		select {
+		case <-w.closingCh:
+			stop()
+			return
+		case cert := <-w.intTLSCh:
+			select {
+			case <-w.closingCh:
+				stop()
+				return
+			case w.outTLSCh <- cert:
+			}
+		case err := <-w.intErrCh:
+			select {
+			case <-w.closingCh:
+				stop()
+				return
+			case w.outErrCh <- err:
+			}
+		}
+	}
+}
+
+func (w *Sentry) runNotifyHandler(watcher *fsnotify.Watcher) {
+	for {
+		select {
+		case event, ok := <-watcher.Events:
+			if !ok {
+				return
+			}
+
+			if event.Op&fsnotify.Write == fsnotify.Write {
+				w.loadCertificate()
+			}
+		case err, ok := <-watcher.Errors:
+			if !ok {
+				return
+			}
+
+			select {
+			case <-w.closedCh:
+				return
+			default:
+			}
+
+			select {
+			case <-w.closedCh:
+				return
+			case w.intErrCh <- err:
+			}
+		}
+	}
+}
+
+func (w *Sentry) stop() {
+	select {
+	case w.closingCh <- struct{}{}:
+		<-w.closedCh
+	case <-w.closedCh:
+	}
 }

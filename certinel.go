@@ -13,6 +13,7 @@ import (
 type Certinel struct {
 	certificate atomic.Value // *tls.Certificate
 	watcher     Watcher
+	done        chan struct{}
 	errBack     func(error)
 }
 
@@ -32,6 +33,7 @@ func New(w Watcher, errBack func(error)) *Certinel {
 
 	return &Certinel{
 		watcher: w,
+		done:    make(chan struct{}),
 		errBack: errBack,
 	}
 }
@@ -39,14 +41,32 @@ func New(w Watcher, errBack func(error)) *Certinel {
 // Watch setups the Certinel's channel handles and calls Watch on the
 // held Watcher instance.
 func (c *Certinel) Watch() {
+	select {
+	case <-c.done:
+		panic("attempting watch after close")
+	default:
+	}
+
 	go func() {
+		defer func() {
+			close(c.done)
+		}()
+
 		tlsChan, errChan := c.watcher.Watch()
 
 		for {
 			select {
-			case certificate := <-tlsChan:
+			case certificate, ok := <-tlsChan:
+				if !ok {
+					return
+				}
+
 				c.certificate.Store(&certificate)
-			case err := <-errChan:
+			case err, ok := <-errChan:
+				if !ok {
+					return
+				}
+
 				c.errBack(err)
 			}
 		}
@@ -56,7 +76,17 @@ func (c *Certinel) Watch() {
 // Close calls Close on the held Watcher instance. After closing it
 // is no longer safe to use this Certinel instance.
 func (c *Certinel) Close() error {
-	return c.watcher.Close()
+	select {
+	case <-c.done:
+		return nil
+	default:
+	}
+
+	err := c.watcher.Close()
+
+	<-c.done
+
+	return err
 }
 
 // GetCertificate returns the current tls.Certificate instance. The function
