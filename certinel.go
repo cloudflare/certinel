@@ -42,12 +42,20 @@ func (c *Certinel) Watch() {
 	go func() {
 		tlsChan, errChan := c.watcher.Watch()
 
-		for {
+		for tlsChan != nil && errChan != nil {
 			select {
-			case certificate := <-tlsChan:
-				c.certificate.Store(&certificate)
-			case err := <-errChan:
-				c.errBack(err)
+			case certificate, ok := <-tlsChan:
+				if ok {
+					c.certificate.Store(&certificate)
+				} else {
+					tlsChan = nil
+				}
+			case err, ok := <-errChan:
+				if ok {
+					c.errBack(err)
+				} else {
+					errChan = nil
+				}
 			}
 		}
 	}()
