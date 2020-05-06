@@ -2,6 +2,8 @@ package certinel
 
 import (
 	"crypto/tls"
+	"errors"
+	"runtime"
 	"testing"
 	"time"
 
@@ -168,4 +170,56 @@ func BenchmarkGetCertificateParallel(b *testing.B) {
 	subject.Close() // nolint: errcheck
 
 	watcher.AssertExpectations(b)
+}
+
+func TestClose(t *testing.T) {
+	// Set up a mock watcher and notification channels.
+	tlsChan := make(chan tls.Certificate)
+	errChan := make(chan error)
+	watcher := &MockWatcher{}
+	watcher.On("Watch").Return(tlsChan, errChan)
+	watcher.On("Close").Return(nil).Run(func(args mock.Arguments) {
+		close(tlsChan)
+		close(errChan)
+	})
+	// Prepare the sentinel over the mock watcher.
+	done := make(chan struct{})
+	sentinel := &Certinel{
+		watcher: watcher,
+		errBack: func(err error) {
+			if err == nil {
+				t.Error("nil error provided to callback")
+			} else {
+				close(done)
+			}
+		},
+	}
+
+	// Record the number of goroutines before starting the watch.
+	goCount := runtime.NumGoroutine()
+
+	// Start the watch goroutine and test it propagates errors.
+	sentinel.Watch()
+
+	errChan <- errors.New("error")
+	select {
+	case <-time.After(time.Second):
+		t.Errorf("never received error")
+	case <-done:
+	}
+
+	// Close the sentinel and wait for the watch goroutine to exit.
+	err := sentinel.Close()
+	if err != nil {
+		t.Error(err)
+	}
+
+	for i := 0; runtime.NumGoroutine() > goCount && i < 10; i++ {
+		runtime.Gosched()
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if n := runtime.NumGoroutine(); n > goCount {
+		t.Errorf("expected %v goroutines, found %v", goCount, n)
+	}
 }

@@ -42,14 +42,24 @@ func New(cert, key string) (*Sentry, error) {
 	}
 
 	go func() {
-		for {
+		defer close(fsw.errChan)
+		defer close(fsw.tlsChan)
+
+		eventsCh, errorsCh := watcher.Events, watcher.Errors
+		for eventsCh != nil && errorsCh != nil {
 			select {
-			case event := <-watcher.Events:
-				if event.Op&fsnotify.Write == fsnotify.Write {
+			case event, ok := <-eventsCh:
+				if !ok {
+					eventsCh = nil
+				} else if event.Op&fsnotify.Write == fsnotify.Write {
 					fsw.loadCertificate()
 				}
-			case err := <-watcher.Errors:
-				fsw.errChan <- err
+			case err, ok := <-errorsCh:
+				if !ok {
+					errorsCh = nil
+				} else {
+					fsw.errChan <- err
+				}
 			}
 		}
 	}()
@@ -71,12 +81,7 @@ func (w *Sentry) Watch() (certCh <-chan tls.Certificate, errCh <-chan error) {
 }
 
 func (w *Sentry) Close() error {
-	err := w.fsnotify.Close()
-
-	close(w.tlsChan)
-	close(w.errChan)
-
-	return err
+	return w.fsnotify.Close()
 }
 
 func (w *Sentry) loadCertificate() {
