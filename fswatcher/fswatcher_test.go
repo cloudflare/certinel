@@ -54,11 +54,6 @@ func TestClose(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for i := 0; runtime.NumGoroutine() != goCount && i < 10; i++ {
-		runtime.Gosched()
-		time.Sleep(10 * time.Millisecond)
-	}
-
 	if n := runtime.NumGoroutine(); n != goCount {
 		t.Fatalf("expected %v goroutines, found %v", goCount, n)
 	}
@@ -71,5 +66,10 @@ func TestClose(t *testing.T) {
 		if ok {
 			t.Errorf("receive on channel expected to be closed")
 		}
+	}
+
+	// Subsequent calls to Close return nil and do not panic.
+	if err := watcher.Close(); err != nil {
+		t.Error(err)
 	}
 }

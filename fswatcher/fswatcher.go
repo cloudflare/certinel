@@ -3,6 +3,7 @@ package fswatcher
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"sync"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/pkg/errors"
@@ -14,6 +15,10 @@ type Sentry struct {
 	keyPath  string
 	tlsChan  chan tls.Certificate
 	errChan  chan error
+
+	watchOnce sync.Once
+	closeOnce sync.Once
+	done      chan struct{}
 }
 
 const (
@@ -39,9 +44,11 @@ func New(cert, key string) (*Sentry, error) {
 		keyPath:  key,
 		tlsChan:  make(chan tls.Certificate),
 		errChan:  make(chan error),
+		done:     make(chan struct{}),
 	}
 
 	go func() {
+		defer close(fsw.done)
 		defer close(fsw.errChan)
 		defer close(fsw.tlsChan)
 
@@ -68,20 +75,28 @@ func New(cert, key string) (*Sentry, error) {
 }
 
 func (w *Sentry) Watch() (certCh <-chan tls.Certificate, errCh <-chan error) {
-	go func() {
-		w.loadCertificate()
-		err := w.fsnotify.Add(w.certPath)
+	w.watchOnce.Do(func() {
+		go func() {
+			w.loadCertificate()
+			err := w.fsnotify.Add(w.certPath)
 
-		if err != nil {
-			w.errChan <- err
-		}
-	}()
+			if err != nil {
+				w.errChan <- err
+			}
+		}()
+	})
 
 	return w.tlsChan, w.errChan
 }
 
-func (w *Sentry) Close() error {
-	return w.fsnotify.Close()
+func (w *Sentry) Close() (err error) {
+	w.closeOnce.Do(func() {
+		err = w.fsnotify.Close()
+	})
+
+	<-w.done
+
+	return err
 }
 
 func (w *Sentry) loadCertificate() {
