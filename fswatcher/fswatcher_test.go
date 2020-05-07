@@ -32,22 +32,18 @@ func TestClose(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, errChan := watcher.Watch()
+	if err := watcher.Watch(); err != nil {
+		t.Fatal(err)
+	}
 
 	// Ensure an error is propagated from parsing the empty cert.
 	select {
 	case <-time.After(time.Second):
 		t.Fatalf("expected a certificate error")
-	case certErr, ok := <-errChan:
+	case certErr, ok := <-watcher.Errors:
 		if !ok || !strings.Contains(certErr.Error(), "failed to find any PEM data") {
 			t.Error(certErr)
 		}
-	}
-
-	// Close the watch and ensure all goroutines have exited.
-	err = watcher.Close()
-	if err != nil {
-		t.Fatal(err)
 	}
 
 	// Close the watch and ensure all goroutines have exited.
@@ -60,7 +56,7 @@ func TestClose(t *testing.T) {
 	select {
 	default:
 		t.Errorf("default case on select of channel expected to be closed")
-	case _, ok := <-errChan:
+	case _, ok := <-watcher.Errors:
 		if ok {
 			t.Errorf("receive on channel expected to be closed")
 		}
