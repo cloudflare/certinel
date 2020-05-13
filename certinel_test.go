@@ -3,7 +3,10 @@ package certinel
 import (
 	"crypto/tls"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -232,5 +235,44 @@ func TestClose(t *testing.T) {
 	// Subsequent calls to Close return nil and do not panic.
 	if err := sentinel.Close(); err != nil {
 		t.Error(err)
+	}
+}
+
+func TestGetClientCertificate(t *testing.T) {
+	// Set up a TLS server that will ask for client certs.
+	ts := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	}))
+	ts.TLS = &tls.Config{
+		ClientAuth: tls.RequireAnyClientCert,
+	}
+	ts.StartTLS()
+
+	defer ts.Close()
+
+	// Set up a watcher that will never load any certifcates.
+	tlsChan := make(chan tls.Certificate)
+	errChan := make(chan error)
+	watcher := &MockWatcher{}
+	watcher.On("Watch").Return(tlsChan, errChan)
+	watcher.On("Close").Return(nil).Run(func(args mock.Arguments) {
+		close(tlsChan)
+		close(errChan)
+	})
+
+	// Launch a Certinel and configure it to provide a client certificate.
+	sentinel := New(watcher, nil)
+	defer sentinel.Close()
+
+	client := ts.Client()
+	if transport, ok := client.Transport.(*http.Transport); !ok {
+		t.Fatalf("Expected an *http.Transport: %T", client.Transport)
+	} else {
+		transport.TLSClientConfig.GetClientCertificate = sentinel.GetClientCertificate
+	}
+
+	// Attempt to perform a GET request.
+	_, err := client.Get(ts.URL)
+	if err == nil || !strings.Contains(err.Error(), "tls: bad certificate") {
+		t.Fatalf("Expected TLS alert bad_certificate(42): error was %v", err)
 	}
 }
