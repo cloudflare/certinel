@@ -99,5 +99,9 @@ func (c *Certinel) GetCertificate(clientHello *tls.ClientHelloInfo) (*tls.Certif
 // safe to call across multiple goroutines.
 func (c *Certinel) GetClientCertificate(certificateRequest *tls.CertificateRequestInfo) (*tls.Certificate, error) {
 	cert, _ := c.certificate.Load().(*tls.Certificate)
-	return cert, nil
+	if cert == nil {
+		return &tls.Certificate{}, nil
+	} else {
+		return cert, nil
+	}
 }
