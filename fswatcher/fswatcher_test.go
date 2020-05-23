@@ -72,4 +72,26 @@ func TestClose(t *testing.T) {
 	if err := watcher.Close(); err != nil {
 		t.Error(err)
 	}
+
+	// Heavy cycling of fswatchers does not cause a race condition.
+	for i := 0; i < 10; i++ {
+		// Create a new watch.
+		w, err := fswatcher.New(certFile.Name(), keyFile.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Start the watch and drain channels.
+		tlsCh, errCh := w.Watch()
+		go func() {
+			for range tlsCh {
+			}
+		}()
+		go func() {
+			for range errCh {
+			}
+		}()
+		// Immediately close the watch, e.g. because a Dial failed.
+		w.Close()
+
+	}
 }
