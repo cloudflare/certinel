@@ -25,6 +25,8 @@ const (
 	errAddWatcher      = "fswatcher: error adding path to watcher"
 	errCreateWatcher   = "fswatcher: error creating watcher"
 	errLoadCertificate = "fswatcher: error loading certificate"
+
+	eventWatchFilter = fsnotify.Write | fsnotify.Create
 )
 
 // New creates a Sentry to watch for file system changes.
@@ -58,7 +60,7 @@ func New(cert, key string) (*Sentry, error) {
 			case event, ok := <-eventsCh:
 				if !ok {
 					eventsCh = nil
-				} else if event.Op&fsnotify.Write == fsnotify.Write {
+				} else if event.Op&eventWatchFilter > 0 {
 					fsw.loadCertificate()
 				}
 			case err, ok := <-errorsCh:
