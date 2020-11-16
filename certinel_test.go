@@ -31,7 +31,7 @@ func (o *MockWatcher) Close() error {
 }
 
 func TestGetCertificate(t *testing.T) {
-	tlsChan := make(chan tls.Certificate)
+	tlsChan := make(chan tls.Certificate, 1)
 	errChan := make(chan error)
 	cert := tls.Certificate{}
 	clientHello := &tls.ClientHelloInfo{}
@@ -53,23 +53,30 @@ func TestGetCertificate(t *testing.T) {
 		assert.Nil(t, gotCert)
 	}
 
-	subject.Watch()
 	tlsChan <- cert
+	if err := subject.Watch(); err != nil {
+		t.Fatal(err)
+	}
 
-	<-time.After(time.Duration(1) * time.Millisecond)
+	// Additional calls to Watch are no-ops.
+	if err := subject.Watch(); err != nil {
+		t.Error(err)
+	}
 
 	gotCert, err = subject.GetCertificate(clientHello)
 	if assert.NoError(t, err) {
 		assert.Equal(t, cert, *gotCert)
 	}
 
-	subject.Close() // nolint: errcheck
+	if err := subject.Close(); err != nil {
+		t.Error(err)
+	}
 
 	watcher.AssertExpectations(t)
 }
 
 func TestGetCertificateAfterChange(t *testing.T) {
-	tlsChan := make(chan tls.Certificate)
+	tlsChan := make(chan tls.Certificate, 1)
 	errChan := make(chan error)
 	cert1 := tls.Certificate{
 		Certificate: [][]byte{
@@ -100,10 +107,10 @@ func TestGetCertificateAfterChange(t *testing.T) {
 		assert.Nil(t, gotCert)
 	}
 
-	subject.Watch()
 	tlsChan <- cert1
-
-	<-time.After(time.Duration(1) * time.Millisecond)
+	if err := subject.Watch(); err != nil {
+		t.Fatal(err)
+	}
 
 	gotCert, err = subject.GetCertificate(clientHello)
 	if assert.NoError(t, err) {
@@ -119,13 +126,15 @@ func TestGetCertificateAfterChange(t *testing.T) {
 		assert.Equal(t, cert2, *gotCert)
 	}
 
-	subject.Close() // nolint: errcheck
+	if err := subject.Close(); err != nil {
+		t.Error(err)
+	}
 
 	watcher.AssertExpectations(t)
 }
 
 func BenchmarkGetCertificate(b *testing.B) {
-	tlsChan := make(chan tls.Certificate)
+	tlsChan := make(chan tls.Certificate, 1)
 	errChan := make(chan error)
 	cert := tls.Certificate{}
 	clientHello := &tls.ClientHelloInfo{}
@@ -142,20 +151,24 @@ func BenchmarkGetCertificate(b *testing.B) {
 		close(errChan)
 	})
 
-	subject.Watch()
 	tlsChan <- cert
+	if err := subject.Watch(); err != nil {
+		b.Fatal(err)
+	}
 
 	for n := 0; n < b.N; n++ {
 		subject.GetCertificate(clientHello) // nolint: errcheck
 	}
 
-	subject.Close() // nolint: errcheck
+	if err := subject.Close(); err != nil {
+		b.Error(err)
+	}
 
 	watcher.AssertExpectations(b)
 }
 
 func BenchmarkGetCertificateParallel(b *testing.B) {
-	tlsChan := make(chan tls.Certificate)
+	tlsChan := make(chan tls.Certificate, 1)
 	errChan := make(chan error)
 	cert := tls.Certificate{}
 	watcher := &MockWatcher{}
@@ -171,8 +184,10 @@ func BenchmarkGetCertificateParallel(b *testing.B) {
 		close(errChan)
 	})
 
-	subject.Watch()
 	tlsChan <- cert
+	if err := subject.Watch(); err != nil {
+		b.Fatal(err)
+	}
 
 	b.RunParallel(func(pb *testing.PB) {
 		clientHello := &tls.ClientHelloInfo{}
@@ -182,14 +197,16 @@ func BenchmarkGetCertificateParallel(b *testing.B) {
 		}
 	})
 
-	subject.Close() // nolint: errcheck
+	if err := subject.Close(); err != nil {
+		b.Error(err)
+	}
 
 	watcher.AssertExpectations(b)
 }
 
 func TestClose(t *testing.T) {
 	// Set up a mock watcher and notification channels.
-	tlsChan := make(chan tls.Certificate)
+	tlsChan := make(chan tls.Certificate, 1)
 	errChan := make(chan error)
 	watcher := &MockWatcher{}
 	watcher.On("Watch").Return(tlsChan, errChan)
@@ -214,7 +231,10 @@ func TestClose(t *testing.T) {
 	goCount := runtime.NumGoroutine()
 
 	// Start the watch goroutine and test it propagates errors.
-	sentinel.Watch()
+	tlsChan <- tls.Certificate{}
+	if err := sentinel.Watch(); err != nil {
+		t.Fatal(err)
+	}
 
 	errChan <- errors.New("error")
 	select {

@@ -39,8 +39,9 @@ func main() {
 	sentinel := certinel.New(watcher, func(err error) {
 		log.Printf("error: certinel was unable to reload the certificate. err='%s'", err)
 	})
-
-	sentinel.Watch()
+	if err := sentinel.Watch(); err != nil {
+		log.Fatalf("fatal: unable to read server certificate. err='%s'", err)
+	}
 
 	server := http.Server{
 		Addr: ":8000",

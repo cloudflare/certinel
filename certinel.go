@@ -2,6 +2,7 @@ package certinel
 
 import (
 	"crypto/tls"
+	"fmt"
 	"sync"
 	"sync/atomic"
 )
@@ -15,12 +16,14 @@ type Certinel struct {
 	certificate atomic.Value // *tls.Certificate
 	watcher     Watcher
 	errBack     func(error)
-	watchOnce   sync.Once
-	closeOnce   sync.Once
+	tlsChan     <-chan tls.Certificate
+	errChan     <-chan error
+	closed      bool
 	done        chan struct{}
+	lock        sync.Mutex
 }
 
-// Watchers provide a way to construct (and close!) channels that
+// Watcher provides a way to construct (and close!) channels that
 // bind a Certinel to a changing certificate.
 type Watcher interface {
 	Watch() (<-chan tls.Certificate, <-chan error)
@@ -40,48 +43,81 @@ func New(w Watcher, errBack func(error)) *Certinel {
 	}
 }
 
-// Watch setups the Certinel's channel handles and calls Watch on the
-// held Watcher instance.
-func (c *Certinel) Watch() {
-	c.watchOnce.Do(func() {
-		c.done = make(chan struct{})
-		go func() {
-			defer close(c.done)
-			tlsChan, errChan := c.watcher.Watch()
+// Watch sets up the Certinel's channel handles and calls Watch on the held
+// Watcher instance. It blocks until the initial load of the key pair. Once it
+// returns with a nil error, GetCertificate and GetClientCertificate are ready
+// for use.
+func (c *Certinel) Watch() error {
+	c.lock.Lock()
+	defer c.lock.Unlock()
 
-			for tlsChan != nil && errChan != nil {
-				select {
-				case certificate, ok := <-tlsChan:
-					if ok {
-						c.certificate.Store(&certificate)
-					} else {
-						tlsChan = nil
-					}
-				case err, ok := <-errChan:
-					if ok {
-						c.errBack(err)
-					} else {
-						errChan = nil
-					}
-				}
+	if c.done != nil || c.closed {
+		return nil
+	}
+
+	c.done = make(chan struct{})
+	c.tlsChan, c.errChan = c.watcher.Watch()
+
+	// Block until we load the key pair for this first time. This allows clients
+	// to fail fast in case of error, and otherwise know subsequent calls to
+	// GetCertificate/GetClientCertificate will succeed.
+	ok, err := c.processEvent()
+	if !ok {
+		return fmt.Errorf("closed")
+	} else if err != nil {
+		return err
+	}
+
+	go func() {
+		defer close(c.done)
+		for {
+			ok, err := c.processEvent()
+			if !ok {
+				return
 			}
-		}()
-	})
+			if err != nil {
+				c.errBack(err)
+			}
+		}
+	}()
+
+	return nil
+}
+
+func (c *Certinel) processEvent() (bool, error) {
+	select {
+	case certificate, ok := <-c.tlsChan:
+		if !ok {
+			return false, nil
+		}
+		c.certificate.Store(&certificate)
+		return true, nil
+	case err, ok := <-c.errChan:
+		if !ok {
+			return false, nil
+		}
+		return true, err
+	}
 }
 
 // Close calls Close on the held Watcher instance. After closing it
 // is no longer safe to use this Certinel instance.
-func (c *Certinel) Close() (err error) {
-	// Prevent Watch after Close, since it launches the watcher routine.
-	c.watchOnce.Do(func() {})
+func (c *Certinel) Close() error {
+	c.lock.Lock()
+	defer c.lock.Unlock()
 
-	c.closeOnce.Do(func() {
-		err = c.watcher.Close()
-	})
-
-	if c.done != nil {
-		<-c.done
+	if c.done == nil || c.closed {
+		return nil
 	}
+
+	c.closed = true
+
+	// Close the watcher. This will in turn close its channels, which will
+	// signal the event loop goroutine to exit.
+	err := c.watcher.Close()
+
+	// Now wait for the event loop goroutine to exit.
+	<-c.done
 
 	return err
 }

@@ -22,7 +22,6 @@ type Sentry struct {
 }
 
 const (
-	errAddWatcher      = "fswatcher: error adding path to watcher"
 	errCreateWatcher   = "fswatcher: error creating watcher"
 	errLoadCertificate = "fswatcher: error loading certificate"
 )
@@ -32,10 +31,6 @@ func New(cert, key string) (*Sentry, error) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, errors.Wrap(err, errCreateWatcher)
-	}
-
-	if err != nil {
-		return nil, errors.Wrap(err, errAddWatcher)
 	}
 
 	fsw := &Sentry{
