@@ -1,6 +1,6 @@
 module github.com/cloudflare/certinel
 
-go 1.13
+go 1.14
 
 require (
 	github.com/fsnotify/fsnotify v1.4.7
