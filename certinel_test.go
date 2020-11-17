@@ -244,6 +244,7 @@ func TestGetClientCertificate(t *testing.T) {
 	}))
 	ts.TLS = &tls.Config{
 		ClientAuth: tls.RequireAnyClientCert,
+		MinVersion: tls.VersionTLS13,
 	}
 	ts.StartTLS()
 
