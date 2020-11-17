@@ -42,6 +42,11 @@ func main() {
 
 	sentinel.Watch()
 
+	// Optional: block until the initial certificate load completes.
+	if err := sentinel.Wait(context.Background()); err != nil {
+		log.Fatalf("fatal: unable to read server certificate. err='%s'", err)
+	}
+
 	server := http.Server{
 		Addr: ":8000",
 		TLSConfig: &tls.Config{

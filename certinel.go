@@ -1,6 +1,7 @@
 package certinel
 
 import (
+	"context"
 	"crypto/tls"
 	"sync"
 	"sync/atomic"
@@ -17,10 +18,12 @@ type Certinel struct {
 	errBack     func(error)
 	watchOnce   sync.Once
 	closeOnce   sync.Once
+	err         error
+	loaded      chan struct{}
 	done        chan struct{}
 }
 
-// Watchers provide a way to construct (and close!) channels that
+// Watcher provides a way to construct (and close!) channels that
 // bind a Certinel to a changing certificate.
 type Watcher interface {
 	Watch() (<-chan tls.Certificate, <-chan error)
@@ -37,6 +40,7 @@ func New(w Watcher, errBack func(error)) *Certinel {
 	return &Certinel{
 		watcher: w,
 		errBack: errBack,
+		loaded:  make(chan struct{}),
 	}
 }
 
@@ -49,19 +53,29 @@ func (c *Certinel) Watch() {
 			defer close(c.done)
 			tlsChan, errChan := c.watcher.Watch()
 
+			var loaded bool
 			for tlsChan != nil && errChan != nil {
 				select {
 				case certificate, ok := <-tlsChan:
-					if ok {
-						c.certificate.Store(&certificate)
-					} else {
+					if !ok {
 						tlsChan = nil
+						break
+					}
+					c.certificate.Store(&certificate)
+					if !loaded {
+						loaded = true
+						close(c.loaded)
 					}
 				case err, ok := <-errChan:
-					if ok {
-						c.errBack(err)
-					} else {
+					if !ok {
 						errChan = nil
+						break
+					}
+					c.errBack(err)
+					if !loaded {
+						loaded = true
+						c.err = err
+						close(c.loaded)
 					}
 				}
 			}
@@ -86,9 +100,27 @@ func (c *Certinel) Close() (err error) {
 	return err
 }
 
+// Wait blocks until the initial load of the certificate completes. If it
+// returns a nil error, GetCertificate and GetClientCertificate are ready for
+// use.
+func (c *Certinel) Wait(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-c.loaded:
+	}
+
+	return c.err
+}
+
 // GetCertificate returns the current tls.Certificate instance. The function
 // can be passed as the GetCertificate member in a tls.Config object. It is
 // safe to call across multiple goroutines.
+//
+// The function will return (nil, nil) if a certificate has yet to be loaded, or
+// if it has been unloaded. See the net/http documentation for the fallback path
+// when GetCertificate returns (nil, nil). The Wait method can be used to block
+// until the initial load of the certificate completes.
 func (c *Certinel) GetCertificate(clientHello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 	cert, _ := c.certificate.Load().(*tls.Certificate)
 	return cert, nil
@@ -97,11 +129,16 @@ func (c *Certinel) GetCertificate(clientHello *tls.ClientHelloInfo) (*tls.Certif
 // GetClientCertificate returns the current tls.Certificate instance. The function
 // can be passed as the GetClientCertificate member in a tls.Config object. It is
 // safe to call across multiple goroutines.
+//
+// The function will return an empty certificate if a certificate has yet to be
+// loaded, or if it has been unloaded. If this occurs no certificate will be
+// sent to the server. The Wait method can be used to block until the initial
+// load of the certificate completes.
 func (c *Certinel) GetClientCertificate(certificateRequest *tls.CertificateRequestInfo) (*tls.Certificate, error) {
 	cert, _ := c.certificate.Load().(*tls.Certificate)
 	if cert == nil {
-		return &tls.Certificate{}, nil
-	} else {
-		return cert, nil
+		cert = &tls.Certificate{}
 	}
+
+	return cert, nil
 }
