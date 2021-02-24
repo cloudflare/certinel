@@ -42,7 +42,7 @@ jobs:
       - restore-go-mod-cache
       # commands
       - run: go get
-      - run: golangci-lint   run -E goimports -v
+      - run: golangci-lint run -E goimports -v
       - run: go test -v ./pollwatcher/...
       - run: go test -v ./fswatcher/...
       - run: go test -v .

@@ -3,7 +3,7 @@ examples
 
 This directory contains examples of how to use this library.
 
-pollwatcher_example.go
+pollwatcher/pollwatcher_example.go
 ----------------------
 
 Demonstrates using the `stat()` based pollwatcher package.
@@ -12,7 +12,7 @@ Demonstrates using the `stat()` based pollwatcher package.
 # create a self-signed cert - tls.key, tls.crt:
 openssl req -x509 -newkey rsa:2048 -nodes -keyout tls.key -out tls.crt -days 7 -subj '/C=US/L=California/CN=testing-only/'
 
-go run ./pollwatcher_example.go
+go run pollwatcher/pollwatcher_example.go
 
 curl -k https://localhost:8000
 
@@ -25,11 +25,11 @@ If you need to create an expired cert pass a negative value to the `-days` flag.
 openssl req -x509 -newkey rsa:2048 -nodes -keyout tls.key -out tls.crt -days -1 -subj '/C=US/L=California/CN=testing-only/'
 ```
 
-fswatcher_example.go
+fswatcher/fswatcher_example.go
 ----------------------
 
 Demonstrates using the [fsnotify](https://github.com/fsnotify/fsnotify) (inotify) based fswatcher package.
 
 ```sh
-go run ./fswatcher_example.go
+go run fswatcher/fswatcher_example.go
 ```
