@@ -82,3 +82,11 @@ func (c *Certinel) GetCertificate(clientHello *tls.ClientHelloInfo) (*tls.Certif
 	cert, _ := c.certificate.Load().(*tls.Certificate)
 	return cert, nil
 }
+
+// GetClientCertificate returns the current tls.Certificate instance. The function
+// can be passed as the GetClientCertificate member in a tls.Config object. (Introduced in go-1.8)
+// It is safe to call across multiple goroutines.
+func (c *Certinel) GetClientCertificate(certificateRequest *tls.CertificateRequestInfo) (*tls.Certificate, error) {
+	cert, _ := c.certificate.Load().(*tls.Certificate)
+	return cert, nil
+}
