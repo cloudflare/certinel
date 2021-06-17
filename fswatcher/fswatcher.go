@@ -42,46 +42,44 @@ func New(cert, key string) (*Sentry, error) {
 		fsnotify: watcher,
 		certPath: cert,
 		keyPath:  key,
-		tlsChan:  make(chan tls.Certificate),
-		errChan:  make(chan error),
 		done:     make(chan struct{}),
 	}
-
-	go func() {
-		defer close(fsw.done)
-		defer close(fsw.errChan)
-		defer close(fsw.tlsChan)
-
-		eventsCh, errorsCh := watcher.Events, watcher.Errors
-		for eventsCh != nil && errorsCh != nil {
-			select {
-			case event, ok := <-eventsCh:
-				if !ok {
-					eventsCh = nil
-				} else if event.Op&fsnotify.Write == fsnotify.Write {
-					fsw.loadCertificate()
-				}
-			case err, ok := <-errorsCh:
-				if !ok {
-					errorsCh = nil
-				} else {
-					fsw.errChan <- err
-				}
-			}
-		}
-	}()
-
 	return fsw, nil
 }
 
 func (w *Sentry) Watch() (certCh <-chan tls.Certificate, errCh <-chan error) {
 	w.watchOnce.Do(func() {
+		w.tlsChan = make(chan tls.Certificate)
+		w.errChan = make(chan error)
+
+		err := w.fsnotify.Add(w.certPath)
+
 		go func() {
-			w.loadCertificate()
-			err := w.fsnotify.Add(w.certPath)
+			defer close(w.done)
+			defer close(w.errChan)
+			defer close(w.tlsChan)
 
 			if err != nil {
 				w.errChan <- err
+			}
+			w.loadCertificate()
+
+			eventsCh, errorsCh := w.fsnotify.Events, w.fsnotify.Errors
+			for eventsCh != nil && errorsCh != nil {
+				select {
+				case event, ok := <-eventsCh:
+					if !ok {
+						eventsCh = nil
+					} else if event.Op&fsnotify.Write == fsnotify.Write {
+						w.loadCertificate()
+					}
+				case err, ok := <-errorsCh:
+					if !ok {
+						errorsCh = nil
+					} else {
+						w.errChan <- err
+					}
+				}
 			}
 		}()
 	})
