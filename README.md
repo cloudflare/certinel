@@ -1,7 +1,5 @@
-# certinel [![Travis CI][travis-badge]][travis] [![GoDoc][godoc-badge]][godoc]
+# certinel [![GoDoc][godoc-badge]][godoc]
 
-[travis-badge]: https://img.shields.io/travis/cloudflare/master/master.svg?style=flat-square
-[travis]: https://travis-ci.org/cloudflare/certinel
 [godoc-badge]: https://img.shields.io/badge/godoc-reference-blue.svg?style=flat-square
 [godoc]: https://godoc.org/github.com/cloudflare/certinel
 
