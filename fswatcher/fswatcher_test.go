@@ -3,7 +3,6 @@ package fswatcher_test
 import (
 	"io/ioutil"
 	"os"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -27,16 +26,13 @@ func TestClose(t *testing.T) {
 
 	defer os.Remove(keyFile.Name())
 
-	// Record the number of goroutines before starting the watch.
-	goCount := runtime.NumGoroutine()
-
 	// Start a watcher and access its notification channels.
 	watcher, err := fswatcher.New(certFile.Name(), keyFile.Name())
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, errChan := watcher.Watch()
+	tlsChan, errChan := watcher.Watch()
 
 	// Ensure an error is propagated from parsing the empty cert.
 	select {
@@ -54,15 +50,21 @@ func TestClose(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if n := runtime.NumGoroutine(); n != goCount {
-		t.Fatalf("expected %v goroutines, found %v", goCount, n)
-	}
-
 	// Ensure that the error channel has been closed.
 	select {
 	default:
 		t.Errorf("default case on select of channel expected to be closed")
 	case _, ok := <-errChan:
+		if ok {
+			t.Errorf("receive on channel expected to be closed")
+		}
+	}
+
+	// Ensure that the tls channel has been closed.
+	select {
+	default:
+		t.Errorf("default case on select of channel expected to be closed")
+	case _, ok := <-tlsChan:
 		if ok {
 			t.Errorf("receive on channel expected to be closed")
 		}

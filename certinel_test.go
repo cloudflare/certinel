@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -237,9 +236,6 @@ func TestClose(t *testing.T) {
 	}
 	sentinel := New(watcher, errBack)
 
-	// Record the number of goroutines before starting the watch.
-	goCount := runtime.NumGoroutine()
-
 	// Start the watch goroutine and test it propagates errors.
 	sentinel.Watch()
 
@@ -253,10 +249,6 @@ func TestClose(t *testing.T) {
 	// Close the sentinel and wait for the watch goroutine to exit.
 	if err := sentinel.Close(); err != nil {
 		t.Error(err)
-	}
-
-	if n := runtime.NumGoroutine(); n > goCount {
-		t.Errorf("expected %v goroutines, found %v", goCount, n)
 	}
 
 	// Subsequent calls to Close return nil and do not panic.
