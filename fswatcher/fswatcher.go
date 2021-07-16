@@ -3,6 +3,7 @@ package fswatcher
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"path/filepath"
 	"sync"
 
 	"github.com/fsnotify/fsnotify"
@@ -26,6 +27,8 @@ const (
 	errCreateWatcher   = "fswatcher: error creating watcher"
 	errLoadCertificate = "fswatcher: error loading certificate"
 )
+
+const fsCreateOrWriteOpMask = fsnotify.Create | fsnotify.Write
 
 // New creates a Sentry to watch for file system changes.
 func New(cert, key string) (*Sentry, error) {
@@ -52,7 +55,11 @@ func (w *Sentry) Watch() (certCh <-chan tls.Certificate, errCh <-chan error) {
 		w.tlsChan = make(chan tls.Certificate)
 		w.errChan = make(chan error)
 
-		err := w.fsnotify.Add(w.certPath)
+		certPath := filepath.Clean(w.certPath)
+		certDir, _ := filepath.Split(certPath)
+		realCertPath, _ := filepath.EvalSymlinks(certPath)
+
+		err := w.fsnotify.Add(certDir)
 
 		go func() {
 			defer close(w.done)
@@ -68,9 +75,19 @@ func (w *Sentry) Watch() (certCh <-chan tls.Certificate, errCh <-chan error) {
 			for eventsCh != nil && errorsCh != nil {
 				select {
 				case event, ok := <-eventsCh:
-					if !ok {
+					// Portions of this case are inspired by spf13/viper's WatchConfig.
+					// (c) 2014 Steve Francia. MIT Licensed.
+					currentPath, err := filepath.EvalSymlinks(certPath)
+					if err != nil {
+						w.errChan <- err
+					}
+
+					switch {
+					case !ok:
 						eventsCh = nil
-					} else if event.Op&fsnotify.Write == fsnotify.Write {
+					case eventCreatesOrWritesPath(event, certPath), symlinkModified(currentPath, realCertPath):
+						realCertPath = currentPath
+
 						w.loadCertificate()
 					}
 				case err, ok := <-errorsCh:
@@ -113,4 +130,16 @@ func (w *Sentry) loadCertificate() {
 	certificate.Leaf = leaf
 
 	w.tlsChan <- certificate
+}
+
+// eventCreatesOrWritesPath predicate returns true for fsnotify.Create and fsnotify.Write
+// events that modify that specified path.
+func eventCreatesOrWritesPath(event fsnotify.Event, path string) bool {
+	return filepath.Clean(event.Name) == path && event.Op&fsCreateOrWriteOpMask != 0
+}
+
+// symlinkModified predicate returns true when the current symlink path does
+// not match the previous resolved path.
+func symlinkModified(cur, prev string) bool {
+	return cur != "" && cur != prev
 }
