@@ -6,85 +6,49 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
+	"github.com/cloudflare/certinel/internal/fakewatcher"
+	"gotest.tools/v3/assert"
+	is "gotest.tools/v3/assert/cmp"
 )
 
-type MockWatcher struct {
-	mock.Mock
-}
-
-func (o *MockWatcher) Watch() (certCh <-chan tls.Certificate, errCh <-chan error) {
-	args := o.Called()
-
-	return args.Get(0).(chan tls.Certificate), args.Get(1).(chan error)
-}
-
-func (o *MockWatcher) Close() error {
-	args := o.Called()
-
-	return args.Error(0)
-}
-
 func TestGetCertificate(t *testing.T) {
-	tlsChan := make(chan tls.Certificate)
-	errChan := make(chan error)
-	cert := tls.Certificate{}
+	watcher := fakewatcher.New()
 	clientHello := &tls.ClientHelloInfo{}
-	watcher := &MockWatcher{}
+	cert := tls.Certificate{
+		Certificate: [][]byte{
+			[]byte("Hello"),
+		},
+	}
 
 	subject := New(watcher, nil)
-
-	watcher.On("Watch").Return(tlsChan, errChan)
-	watcher.On("Close").Return(nil).Run(func(args mock.Arguments) {
-		close(tlsChan)
-		close(errChan)
-	})
-
 	gotCert, err := subject.GetCertificate(clientHello)
-	if assert.NoError(t, err) {
-		assert.Nil(t, gotCert)
-	}
+	assert.NilError(t, err)
+	assert.Assert(t, is.Nil(gotCert))
 
 	subject.Watch()
-	tlsChan <- cert
+	watcher.Observe(cert)
 
 	err = subject.Wait(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NilError(t, err)
 
 	gotCert, err = subject.GetCertificate(clientHello)
-	if assert.NoError(t, err) {
-		assert.Equal(t, cert, *gotCert)
-	}
+	assert.NilError(t, err)
+	assert.DeepEqual(t, gotCert, &cert)
 
-	subject.Close() // nolint: errcheck
-
-	watcher.AssertExpectations(t)
+	err = subject.Close()
+	assert.NilError(t, err)
 }
 
 func TestWaitTimeout(t *testing.T) {
-	tlsChan := make(chan tls.Certificate)
-	errChan := make(chan error)
-	watcher := &MockWatcher{}
-
+	watcher := fakewatcher.New()
 	subject := New(watcher, nil)
 
-	watcher.On("Watch").Return(tlsChan, errChan)
-	watcher.On("Close").Return(nil).Run(func(args mock.Arguments) {
-		close(tlsChan)
-		close(errChan)
-	})
-
 	gotCert, err := subject.GetCertificate(&tls.ClientHelloInfo{})
-	if assert.NoError(t, err) {
-		assert.Nil(t, gotCert)
-	}
+	assert.NilError(t, err)
+	assert.Assert(t, is.Nil(gotCert))
 
 	subject.Watch()
 
@@ -95,16 +59,14 @@ func TestWaitTimeout(t *testing.T) {
 	defer cancel()
 
 	err = subject.Wait(ctx)
-	assert.Equal(t, context.DeadlineExceeded, err)
+	assert.ErrorType(t, err, context.DeadlineExceeded)
 
-	subject.Close() // nolint: errcheck
-
-	watcher.AssertExpectations(t)
+	err = subject.Close()
+	assert.NilError(t, err)
 }
 
 func TestGetCertificateAfterChange(t *testing.T) {
-	tlsChan := make(chan tls.Certificate)
-	errChan := make(chan error)
+	watcher := fakewatcher.New()
 	cert1 := tls.Certificate{
 		Certificate: [][]byte{
 			[]byte("Hello"),
@@ -116,91 +78,61 @@ func TestGetCertificateAfterChange(t *testing.T) {
 		},
 	}
 	clientHello := &tls.ClientHelloInfo{}
-	watcher := &MockWatcher{}
 
 	subject := New(watcher, nil)
 
-	watcher.On("Watch").Return(tlsChan, errChan)
-	watcher.On("Close").Return(nil).Run(func(args mock.Arguments) {
-		close(tlsChan)
-		close(errChan)
-	})
-
 	gotCert, err := subject.GetCertificate(clientHello)
-	if assert.NoError(t, err) {
-		assert.Nil(t, gotCert)
-	}
+	assert.NilError(t, err)
+	assert.Assert(t, is.Nil(gotCert))
 
 	subject.Watch()
-	tlsChan <- cert1
+	watcher.Observe(cert1)
 
 	err = subject.Wait(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NilError(t, err)
 
 	gotCert, err = subject.GetCertificate(clientHello)
-	if assert.NoError(t, err) {
-		assert.Equal(t, cert1, *gotCert)
-	}
+	assert.NilError(t, err)
+	assert.DeepEqual(t, gotCert, &cert1)
 
-	tlsChan <- cert2
+	watcher.Observe(cert2)
 
-	<-time.After(time.Duration(1) * time.Millisecond)
+	<-time.After(1 * time.Millisecond)
 
 	gotCert, err = subject.GetCertificate(clientHello)
-	if assert.NoError(t, err) {
-		assert.Equal(t, cert2, *gotCert)
-	}
+	assert.NilError(t, err)
+	assert.DeepEqual(t, gotCert, &cert2)
 
-	subject.Close() // nolint: errcheck
-
-	watcher.AssertExpectations(t)
+	err = subject.Close()
+	assert.NilError(t, err)
 }
 
 func BenchmarkGetCertificate(b *testing.B) {
-	tlsChan := make(chan tls.Certificate)
-	errChan := make(chan error)
+	watcher := fakewatcher.New()
 	cert := tls.Certificate{}
 	clientHello := &tls.ClientHelloInfo{}
-	watcher := &MockWatcher{}
 
 	subject := New(watcher, nil)
 
-	watcher.On("Watch").Return(tlsChan, errChan)
-	watcher.On("Close").Return(nil).Run(func(args mock.Arguments) {
-		close(tlsChan)
-		close(errChan)
-	})
-
 	subject.Watch()
-	tlsChan <- cert
+	watcher.Observe(cert)
 
 	for n := 0; n < b.N; n++ {
 		subject.GetCertificate(clientHello) // nolint: errcheck
 	}
 
-	subject.Close() // nolint: errcheck
-
-	watcher.AssertExpectations(b)
+	err := subject.Close()
+	assert.NilError(b, err)
 }
 
 func BenchmarkGetCertificateParallel(b *testing.B) {
-	tlsChan := make(chan tls.Certificate)
-	errChan := make(chan error)
+	watcher := fakewatcher.New()
 	cert := tls.Certificate{}
-	watcher := &MockWatcher{}
 
 	subject := New(watcher, nil)
 
-	watcher.On("Watch").Return(tlsChan, errChan)
-	watcher.On("Close").Return(nil).Run(func(args mock.Arguments) {
-		close(tlsChan)
-		close(errChan)
-	})
-
 	subject.Watch()
-	tlsChan <- cert
+	watcher.Observe(cert)
 
 	b.RunParallel(func(pb *testing.PB) {
 		clientHello := &tls.ClientHelloInfo{}
@@ -210,21 +142,13 @@ func BenchmarkGetCertificateParallel(b *testing.B) {
 		}
 	})
 
-	subject.Close() // nolint: errcheck
-
-	watcher.AssertExpectations(b)
+	err := subject.Close()
+	assert.NilError(b, err)
 }
 
 func TestClose(t *testing.T) {
-	// Set up a mock watcher and notification channels.
-	tlsChan := make(chan tls.Certificate)
-	errChan := make(chan error)
-	watcher := &MockWatcher{}
-	watcher.On("Watch").Return(tlsChan, errChan)
-	watcher.On("Close").Return(nil).Run(func(args mock.Arguments) {
-		close(tlsChan)
-		close(errChan)
-	})
+	watcher := fakewatcher.New()
+
 	// Prepare the sentinel over the mock watcher.
 	done := make(chan struct{})
 	errBack := func(err error) {
@@ -239,7 +163,7 @@ func TestClose(t *testing.T) {
 	// Start the watch goroutine and test it propagates errors.
 	sentinel.Watch()
 
-	errChan <- errors.New("error")
+	watcher.Error(errors.New("error"))
 	select {
 	case <-time.After(time.Second):
 		t.Errorf("never received error")
@@ -247,14 +171,12 @@ func TestClose(t *testing.T) {
 	}
 
 	// Close the sentinel and wait for the watch goroutine to exit.
-	if err := sentinel.Close(); err != nil {
-		t.Error(err)
-	}
+	err := sentinel.Close()
+	assert.NilError(t, err)
 
 	// Subsequent calls to Close return nil and do not panic.
-	if err := sentinel.Close(); err != nil {
-		t.Error(err)
-	}
+	err = sentinel.Close()
+	assert.NilError(t, err)
 }
 
 func TestGetClientCertificate(t *testing.T) {
@@ -270,14 +192,7 @@ func TestGetClientCertificate(t *testing.T) {
 	defer ts.Close()
 
 	// Set up a watcher that will never load any certifcates.
-	tlsChan := make(chan tls.Certificate)
-	errChan := make(chan error)
-	watcher := &MockWatcher{}
-	watcher.On("Watch").Return(tlsChan, errChan)
-	watcher.On("Close").Return(nil).Run(func(args mock.Arguments) {
-		close(tlsChan)
-		close(errChan)
-	})
+	watcher := fakewatcher.New()
 
 	// Launch a Certinel and configure it to provide a client certificate.
 	sentinel := New(watcher, nil)
@@ -292,7 +207,5 @@ func TestGetClientCertificate(t *testing.T) {
 
 	// Attempt to perform a GET request.
 	_, err := client.Get(ts.URL)
-	if err == nil || !strings.Contains(err.Error(), "tls: bad certificate") {
-		t.Fatalf("Expected TLS alert bad_certificate(42): error was %v", err)
-	}
+	assert.ErrorContains(t, err, "tls: bad certificate")
 }
