@@ -1,135 +1,113 @@
+// Package fswatcher implements the Certinel interface by watching for filesystem
+// change events using the cross-platform fsnotify package.
+//
+// This implementation watches the directory of the configured certificate to properly
+// notice replacements and symlink updates, this allows fswatcher to be used within
+// Kubernetes watching a certificate updated from a mounted ConfigMap or Secret.
 package fswatcher
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"fmt"
 	"path/filepath"
-	"sync"
+	"sync/atomic"
 
 	"github.com/fsnotify/fsnotify"
-	"github.com/pkg/errors"
 )
 
-type Sentry struct {
-	fsnotify *fsnotify.Watcher
-	certPath string
-	keyPath  string
-	tlsChan  chan tls.Certificate
-	errChan  chan error
-
-	watchOnce sync.Once
-	closeOnce sync.Once
-	done      chan struct{}
+// Sentinel watches for filesystem change events that effect the watched certificate.
+type Sentinel struct {
+	certPath, keyPath string
+	certificate       atomic.Value
 }
-
-const (
-	errAddWatcher      = "fswatcher: error adding path to watcher"
-	errCreateWatcher   = "fswatcher: error creating watcher"
-	errLoadCertificate = "fswatcher: error loading certificate"
-)
 
 const fsCreateOrWriteOpMask = fsnotify.Create | fsnotify.Write
 
-// New creates a Sentry to watch for file system changes.
-func New(cert, key string) (*Sentry, error) {
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		return nil, errors.Wrap(err, errCreateWatcher)
-	}
-
-	if err != nil {
-		return nil, errors.Wrap(err, errAddWatcher)
-	}
-
-	fsw := &Sentry{
-		fsnotify: watcher,
+func New(cert, key string) (*Sentinel, error) {
+	fsw := &Sentinel{
 		certPath: cert,
 		keyPath:  key,
-		done:     make(chan struct{}),
 	}
+
+	if err := fsw.loadCertificate(); err != nil {
+		return nil, fmt.Errorf("unable to load initial certificate: %w", err)
+	}
+
 	return fsw, nil
 }
 
-func (w *Sentry) Watch() (certCh <-chan tls.Certificate, errCh <-chan error) {
-	w.watchOnce.Do(func() {
-		w.tlsChan = make(chan tls.Certificate)
-		w.errChan = make(chan error)
+func (w *Sentinel) Start(ctx context.Context) error {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return fmt.Errorf("unable to create watcher: %w", err)
+	}
+	defer watcher.Close()
 
-		certPath := filepath.Clean(w.certPath)
-		certDir, _ := filepath.Split(certPath)
-		realCertPath, _ := filepath.EvalSymlinks(certPath)
+	certPath := filepath.Clean(w.certPath)
+	certDir, _ := filepath.Split(certPath)
+	realCertPath, _ := filepath.EvalSymlinks(certPath)
 
-		err := w.fsnotify.Add(certDir)
+	if err := watcher.Add(certDir); err != nil {
+		return fmt.Errorf("unable to create watcher: %w", err)
+	}
 
-		go func() {
-			defer close(w.done)
-			defer close(w.errChan)
-			defer close(w.tlsChan)
-
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case event := <-watcher.Events:
+			// Portions of this case are inspired by spf13/viper's WatchConfig.
+			// (c) 2014 Steve Francia. MIT Licensed.
+			currentPath, err := filepath.EvalSymlinks(certPath)
 			if err != nil {
-				w.errChan <- err
+				return err
 			}
-			w.loadCertificate()
 
-			eventsCh, errorsCh := w.fsnotify.Events, w.fsnotify.Errors
-			for eventsCh != nil && errorsCh != nil {
-				select {
-				case event, ok := <-eventsCh:
-					// Portions of this case are inspired by spf13/viper's WatchConfig.
-					// (c) 2014 Steve Francia. MIT Licensed.
-					currentPath, err := filepath.EvalSymlinks(certPath)
-					if err != nil {
-						w.errChan <- err
-					}
+			switch {
+			case eventCreatesOrWritesPath(event, certPath), symlinkModified(currentPath, realCertPath):
+				realCertPath = currentPath
 
-					switch {
-					case !ok:
-						eventsCh = nil
-					case eventCreatesOrWritesPath(event, certPath), symlinkModified(currentPath, realCertPath):
-						realCertPath = currentPath
-
-						w.loadCertificate()
-					}
-				case err, ok := <-errorsCh:
-					if !ok {
-						errorsCh = nil
-					} else {
-						w.errChan <- err
-					}
+				if err := w.loadCertificate(); err != nil {
+					return err
 				}
 			}
-		}()
-	})
-
-	return w.tlsChan, w.errChan
+		case err := <-watcher.Errors:
+			return err
+		}
+	}
 }
 
-func (w *Sentry) Close() (err error) {
-	w.closeOnce.Do(func() {
-		err = w.fsnotify.Close()
-	})
-
-	<-w.done
-
-	return err
-}
-
-func (w *Sentry) loadCertificate() {
+func (w *Sentinel) loadCertificate() error {
 	certificate, err := tls.LoadX509KeyPair(w.certPath, w.keyPath)
 	if err != nil {
-		w.errChan <- errors.Wrap(err, errLoadCertificate)
-		return
+		return fmt.Errorf("unable to load certificate: %w", err)
 	}
 
 	leaf, err := x509.ParseCertificate(certificate.Certificate[0])
 	if err != nil {
-		w.errChan <- errors.Wrap(err, errLoadCertificate)
-		return
+		return fmt.Errorf("unable to load certificate: %w", err)
 	}
 
 	certificate.Leaf = leaf
 
-	w.tlsChan <- certificate
+	w.certificate.Store(&certificate)
+	return nil
+}
+
+func (w *Sentinel) GetCertificate(chi *tls.ClientHelloInfo) (*tls.Certificate, error) {
+	cert, _ := w.certificate.Load().(*tls.Certificate)
+	return cert, nil
+}
+
+func (w *Sentinel) GetClientCertificate(cri *tls.CertificateRequestInfo) (*tls.Certificate, error) {
+	cert, _ := w.certificate.Load().(*tls.Certificate)
+	if cert == nil {
+		cert = &tls.Certificate{}
+	}
+
+	return cert, nil
 }
 
 // eventCreatesOrWritesPath predicate returns true for fsnotify.Create and fsnotify.Write

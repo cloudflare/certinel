@@ -1,20 +1,23 @@
-# certinel [![GoDoc][godoc-badge]][godoc]
+# certinel [![pkg.go.dev][godev-badge]][godev]
 
-[godoc-badge]: https://img.shields.io/badge/godoc-reference-blue.svg?style=flat-square
-[godoc]: https://godoc.org/github.com/cloudflare/certinel
+[godev-badge]: https://pkg.go.dev/badge/github.com/cloudflare/certinel.svg
+[godev]: https://pkg.go.dev/github.com/cloudflare/certinel
 
 Certinel is a Go library that makes it even easier to implement zero-hit
 TLS certificate changes by watching for certificate changes for you. The
 methods required by `tls.Config` are already implemented for you.
 
-Right now there's support for listening to file system events on Linux,
-BSDs, and Windows using the [fsnotify][fsnotify] library.
+| Package                | Note                                                                           |
+|------------------------|--------------------------------------------------------------------------------|
+| [fswatcher][fswatcher] | Filesystem watcher for standard filesystems on Linux, BSD, macOS, and Windows. |
+| [ticker][ticker]       | Filesystem watcher that polls at a defined interval.                           |
 
-[fsnotify]: https://github.com/fsnotify/fsnotify
+[fswatcher]: https://pkg.go.dev/github.com/cloudflare/certinel/fswatcher
+[ticker]: https://pkg.go.dev/github.com/cloudflare/certinel/ticker
 
 ## Usage
 
-Create the certinel instance, start it with `Watch`, then pass the
+Create the certinel instance, start it with `Start`, then pass the
 `GetCertificate` method to your `tls.Config` instance.
 
 ```go
@@ -25,33 +28,39 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/cloudflare/certinel"
 	"github.com/cloudflare/certinel/fswatcher"
+	"github.com/oklog/run"
 )
 
 func main() {
-	watcher, err := fswatcher.New("/etc/ssl/app.pem", "/etc/ssl/app.key")
+	ctx, cancel := context.WithCancel(context.Background())
+
+	certinel, err := fswatcher.New("/etc/ssl/app.pem", "/etc/ssl/app.key")
 	if err != nil {
 		log.Fatalf("fatal: unable to read server certificate. err='%s'", err)
 	}
-	sentinel := certinel.New(watcher, func(err error) {
-		log.Printf("error: certinel was unable to reload the certificate. err='%s'", err)
-	})
-
-	sentinel.Watch()
-
-	// Optional: block until the initial certificate load completes.
-	if err := sentinel.Wait(context.Background()); err != nil {
-		log.Fatalf("fatal: unable to read server certificate. err='%s'", err)
+	
+	g := run.Group{}
+	{
+		g.Add(func() error {
+			return certinel.Start(ctx)
+		}, func(err error) {
+			cancel()
+		})
 	}
-
-	server := http.Server{
-		Addr: ":8000",
-		TLSConfig: &tls.Config{
-			GetCertificate: sentinel.GetCertificate,
-		},
+	{
+		ln, _ := tls.Listen("tcp", ":8000", &tls.Config{
+			GetCertificate: certinel.GetCertificate,
+		})
+		g.Add(func() error {
+			return http.Serve(ln, nil)
+		}, func(err error) {
+			ln.Close()
+		})
 	}
 	
-	server.ListenAndServeTLS("", "")
+	if err := g.Run(); err != nil {
+		log.Fatalf("err='%s'", err)
+	}
 }
 ```
