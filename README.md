@@ -64,3 +64,23 @@ func main() {
 	}
 }
 ```
+
+### Use Atomic Update Pattern
+
+If using a filesystem-based certinel with in an environment where both
+the keys and certificates are updated, care should be taken to update
+both atomically. This is automatically done in some environments, such
+as mounting a secret as a volume in Kubernetes.
+
+1. Create the initial key and certificate in a hidden directory.
+   (`./ssl/.first/app.pem` and `./ssl/.first/app.key`)
+2. Create hidden symlink to this directory (`./ssl/..data` ->
+   `./ssl/.first`)
+3. Create visible files through the hidden symlink (`./ssl/app.pem` ->
+   `./ssl/..data/app.pem`)
+4. When updating the key and certificate, write them into a new hidden
+   directory (`./ssl/.second/app.pem` and `./ssl/.second/app.key`)
+5. Create a new hidden symlink to this new directory (`./ssl/..data_new`
+   -> `./ssl/.second`)
+6. Finally, move this new hidden symlink over the old one (`mv
+   ./ssl/..data_new ./ssl/..data`)
