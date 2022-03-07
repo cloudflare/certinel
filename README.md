@@ -1,6 +1,8 @@
 certinel [![GoDoc][godoc-badge]][godoc]
 =======================================
 
+[![Unsupported](https://img.shields.io/badge/Pantheon-Unsupported-yellow?logo=pantheon&color=FFDC28)](https://pantheon.io/docs/oss-support-levels#unsupported)
+
 > NOTE: This is Pantheon's fork of https://github.com/cloudflare/certinel. It adds additional
 > functionality and Pantheon-specific opinions.
 
