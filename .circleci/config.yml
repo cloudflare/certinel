@@ -8,6 +8,7 @@ executors:
         auth:
           username: $QUAY_USER
           password: $QUAY_PASSWD
+
 commands:
   save-go-mod-cache:
     steps:
