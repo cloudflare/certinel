@@ -58,12 +58,7 @@ jobs:
       - restore-workspace
       # commands
       - run: |
-          curl -s https://api.github.com/repos/pantheon-systems/autotag/releases/latest | \
-            grep browser_download | \
-            grep -i linux | \
-            cut -d '"' -f 4 | \
-            xargs curl -o ~/autotag -L \
-            && chmod 755 ~/autotag
+          curl -sL https://git.io/autotag-install | sh -s -- -b ~/
       - run: ~/autotag
       - run: |
           # stdout and stderr redirected to null to prevent leaking the token on error.
