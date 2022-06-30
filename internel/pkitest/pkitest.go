@@ -17,10 +17,7 @@ import (
 // compatible with cmp.Comparer.
 func CmpBigInt(x, y *big.Int) bool {
 	c := x.Cmp(y)
-	if c == 0 {
-		return true
-	}
-	return false
+	return c == 0
 }
 
 // NewPrivateKey is a test helper that creates a new ECDSA private key.
