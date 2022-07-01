@@ -7,13 +7,17 @@ Certinel is a Go library that makes it even easier to implement zero-hit
 TLS certificate changes by watching for certificate changes for you. The
 methods required by `tls.Config` are already implemented for you.
 
-| Package                | Note                                                                           |
-|------------------------|--------------------------------------------------------------------------------|
-| [fswatcher][fswatcher] | Filesystem watcher for standard filesystems on Linux, BSD, macOS, and Windows. |
-| [ticker][ticker]       | Filesystem watcher that polls at a defined interval.                           |
+| Package                | Note                                                                                     |
+|------------------------|------------------------------------------------------------------------------------------|
+| [fswatcher][fswatcher] | Filesystem watcher for standard filesystems on Linux, BSD, macOS, and Windows.           |
+| [ticker][ticker]       | Filesystem watcher that polls at a defined interval.                                     |
+| [watchman][watchman]   | Filesystem watcher that subscribes to changes using the [Watchman] file watching service |
 
 [fswatcher]: https://pkg.go.dev/github.com/cloudflare/certinel/fswatcher
 [ticker]: https://pkg.go.dev/github.com/cloudflare/certinel/ticker
+[watchman]: https://pkg.go.dev/github.com/cloudflare/certinel/watchman
+
+[Watchman]: https://facebook.github.io/watchman/
 
 ## Usage
 

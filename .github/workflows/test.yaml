@@ -15,6 +15,15 @@ jobs:
       - uses: actions/setup-go@v4
         with:
           go-version: ${{ matrix.go }}
+      - name: Install Watchman (apt)
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: DEBIAN_FRONTEND=noninteractive sudo apt install -y watchman && watchman -v
+      - name: Install Watchman (brew)
+        if: ${{ matrix.os == 'macos-latest' }}
+        run: brew install watchman && watchman -v
+      - name: Install Watchman (chocolatey)
+        if: ${{ matrix.os == 'windows-latest' }}
+        run: choco install watchman && watchman.exe -v
       - run: go test ./...
   lint:
     runs-on: ubuntu-latest
