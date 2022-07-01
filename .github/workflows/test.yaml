@@ -21,5 +21,14 @@ jobs:
         go-version: ${{ matrix.go-version }}
     - name: Checkout
       uses: actions/checkout@v2
+    - name: Install Watchman (apt)
+      if: ${{ matrix.os == 'ubuntu-latest' }}
+      run: DEBIAN_FRONTEND=noninteractive sudo apt install -y watchman
+    - name: Install Watchman (brew)
+      if: ${{ matrix.os == 'macos-latest' }}
+      run: brew install watchman
+    - name: Install Watchman (chocolatey)
+      if: ${{ matrix.os == 'windows-latest' }}
+      run: choco install watchman
     - name: Test
       run: go test ./...
