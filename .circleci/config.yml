@@ -72,7 +72,13 @@ workflows:
   primary:
     jobs:
       - test
+          context:
+            - common
+            - docker-executor-auth
       - tag-version:
+          context:
+            - common
+            - docker-executor-auth
           requires:
             - test
           filters:
