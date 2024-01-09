@@ -68,7 +68,7 @@ func TestWatcher_Symlink(t *testing.T) {
 	})
 
 	cancel()
-	assert.ErrorType(t, g.Wait(), context.Canceled)
+	assert.ErrorIs(t, g.Wait(), context.Canceled)
 }
 
 func TestWatcher_Replacement(t *testing.T) {
@@ -120,5 +120,5 @@ func TestWatcher_Replacement(t *testing.T) {
 	})
 
 	cancel()
-	assert.ErrorType(t, g.Wait(), context.Canceled)
+	assert.ErrorIs(t, g.Wait(), context.Canceled)
 }

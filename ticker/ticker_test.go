@@ -69,5 +69,5 @@ func TestTicker(t *testing.T) {
 	})
 
 	cancel()
-	assert.ErrorType(t, g.Wait(), context.Canceled)
+	assert.ErrorIs(t, g.Wait(), context.Canceled)
 }

@@ -1,4 +1,5 @@
 // +build !windows
+//go:build !windows
 
 package fswatcher
 
@@ -87,5 +88,5 @@ func TestWatcher_AtomicWriter(t *testing.T) {
 	})
 
 	cancel()
-	assert.ErrorType(t, g.Wait(), context.Canceled)
+	assert.ErrorIs(t, g.Wait(), context.Canceled)
 }
