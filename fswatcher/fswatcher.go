@@ -15,7 +15,12 @@ import (
 	"sync/atomic"
 
 	"github.com/fsnotify/fsnotify"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
+
+const ScopeName = "github.com/cloudflare/certinel/fswatcher"
 
 // Sentinel watches for filesystem change events that effect the watched certificate.
 type Sentinel struct {
@@ -25,10 +30,44 @@ type Sentinel struct {
 
 const fsCreateOrWriteOpMask = fsnotify.Create | fsnotify.Write
 
-func New(cert, key string) (*Sentinel, error) {
+func New(cert, key string, opts ...Option) (*Sentinel, error) {
+	cfg := &config{
+		MeterProvider: otel.GetMeterProvider(),
+	}
+
+	for _, opt := range opts {
+		opt.apply(cfg)
+	}
+
+	meter := cfg.MeterProvider.Meter(
+		ScopeName,
+		metric.WithInstrumentationVersion("0.4.1"),
+	)
+
 	fsw := &Sentinel{
 		certPath: cert,
 		keyPath:  key,
+	}
+
+	var err error
+	_, err = meter.Int64ObservableGauge(
+		"certificate.not_before_timestamp",
+		metric.WithUnit("s"),
+		metric.WithDescription("The time after which the certificate is valid. Expressed as seconds since the Unix Epoch"),
+		metric.WithInt64Callback(fsw.observeNotBefore),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = meter.Int64ObservableGauge(
+		"certificate.not_after_timestamp",
+		metric.WithUnit("s"),
+		metric.WithDescription("The time after which the certificate is invalid. Expressed as seconds since the Unix Epoch"),
+		metric.WithInt64Callback(fsw.observeNotAfter),
+	)
+	if err != nil {
+		return nil, err
 	}
 
 	if err := fsw.loadCertificate(); err != nil {
@@ -108,6 +147,34 @@ func (w *Sentinel) GetClientCertificate(cri *tls.CertificateRequestInfo) (*tls.C
 	}
 
 	return cert, nil
+}
+
+func (w *Sentinel) observeNotBefore(_ context.Context, io metric.Int64Observer) error {
+	cert, _ := w.certificate.Load().(*tls.Certificate)
+	if cert != nil {
+		io.Observe(
+			cert.Leaf.NotBefore.Unix(),
+			metric.WithAttributes(
+				attribute.String("certificate.serial", cert.Leaf.SerialNumber.String()),
+				attribute.String("certificate.path", w.certPath),
+			),
+		)
+	}
+	return nil
+}
+
+func (w *Sentinel) observeNotAfter(_ context.Context, io metric.Int64Observer) error {
+	cert, _ := w.certificate.Load().(*tls.Certificate)
+	if cert != nil {
+		io.Observe(
+			cert.Leaf.NotAfter.Unix(),
+			metric.WithAttributes(
+				attribute.String("certificate.serial", cert.Leaf.SerialNumber.String()),
+				attribute.String("certificate.path", w.certPath),
+			),
+		)
+	}
+	return nil
 }
 
 // eventCreatesOrWritesPath predicate returns true for fsnotify.Create and fsnotify.Write
