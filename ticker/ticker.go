@@ -10,16 +10,20 @@ import (
 	"fmt"
 	"sync/atomic"
 	"time"
-
-	"github.com/jonboulle/clockwork"
 )
+
+// ticker allows swapping for a fake [time.Ticker] in tests.
+type ticker interface {
+	Chan() <-chan time.Time
+	Stop()
+}
 
 // Sentinel polls the filesystem for changed certificates.
 type Sentinel struct {
 	certPath, keyPath string
 	duration          time.Duration
-	clock             clockwork.Clock
-	certificate atomic.Value
+	ticker            func(d time.Duration) ticker
+	certificate       atomic.Value
 }
 
 func New(cert, key string, duration time.Duration) (*Sentinel, error) {
@@ -27,7 +31,7 @@ func New(cert, key string, duration time.Duration) (*Sentinel, error) {
 		certPath: cert,
 		keyPath:  key,
 		duration: duration,
-		clock:    clockwork.NewRealClock(),
+		ticker:   newRealTicker,
 	}
 
 	if err := w.loadCertificate(); err != nil {
@@ -55,7 +59,7 @@ func (w *Sentinel) loadCertificate() error {
 }
 
 func (w *Sentinel) Start(ctx context.Context) error {
-	t := w.clock.NewTicker(w.duration)
+	t := w.ticker(w.duration)
 	defer t.Stop()
 
 	for {

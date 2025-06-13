@@ -39,7 +39,9 @@ func TestTicker(t *testing.T) {
 	watcher, err := New(dir.Join("my.crt"), dir.Join("my.key"), 1*time.Minute)
 	assert.NilError(t, err)
 
-	watcher.clock = clock
+	watcher.ticker = func(d time.Duration) ticker {
+		return clock.NewTicker(d)
+	}
 
 	cert, err := watcher.GetCertificate(nil)
 	assert.NilError(t, err)
