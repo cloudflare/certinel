@@ -58,7 +58,7 @@ func TestTicker(t *testing.T) {
 		}, pk),
 	)))
 
-	clock.BlockUntil(1)
+	clock.BlockUntilContext(ctx, 1)
 	clock.Advance(1 * time.Minute)
 
 	poll.WaitOn(t, func(t poll.LogT) poll.Result {
