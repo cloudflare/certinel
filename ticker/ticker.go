@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"os"
 	"sync/atomic"
 	"time"
 )
@@ -85,4 +86,57 @@ func (w *Sentinel) GetClientCertificate(cri *tls.CertificateRequestInfo) (*tls.C
 	}
 
 	return cert, nil
+}
+
+type Vedette struct {
+	caPath   string
+	duration time.Duration
+	ticker   func(d time.Duration) ticker
+	pool     atomic.Pointer[x509.CertPool]
+}
+
+func NewVedette(ca string, duration time.Duration) (*Vedette, error) {
+	w := &Vedette{
+		caPath:   ca,
+		duration: duration,
+		ticker:   newRealTicker,
+	}
+
+	if err := w.loadCertificates(); err != nil {
+		return nil, fmt.Errorf("unable to load initial certificate: %w", err)
+	}
+
+	return w, nil
+}
+
+func (w *Vedette) Start(ctx context.Context) error {
+	t := w.ticker(w.duration)
+	defer t.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-t.Chan():
+			if err := w.loadCertificates(); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+func (w *Vedette) loadCertificates() error {
+	certs, err := os.ReadFile(w.caPath)
+	if err != nil {
+		return fmt.Errorf("unable to load certificates: %w", err)
+	}
+
+	pool := x509.NewCertPool()
+	pool.AppendCertsFromPEM(certs)
+	w.pool.Store(pool)
+	return nil
+}
+
+func (w *Vedette) GetCertPool() *x509.CertPool {
+	return w.pool.Load()
 }

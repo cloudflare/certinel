@@ -5,6 +5,7 @@ package certinel
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 )
 
 // A Certinel implementation watches certificates for changes, and returns the
@@ -12,6 +13,14 @@ import (
 type Certinel interface {
 	GetCertificate(chi *tls.ClientHelloInfo) (*tls.Certificate, error)
 	GetClientCertificate(cri *tls.CertificateRequestInfo) (*tls.Certificate, error)
+}
+
+// A Vedette implementation watches for changes to a Certificate Authority, and
+// returns a [*x509.CertPool] to validate against. Can be paired with
+// [github.com/cloudflare/certinel/vedette.VerifyConnection] to be utilized with a
+// [tls.Config].
+type Vedette interface {
+	GetCertPool() *x509.CertPool
 }
 
 // Runnable is implemented by Certinel instances that perform asynchronous actions.
