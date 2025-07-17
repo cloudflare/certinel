@@ -20,7 +20,7 @@ import (
 // Sentinel watches for filesystem change events that effect the watched certificate.
 type Sentinel struct {
 	certPath, keyPath string
-	certificate       atomic.Value
+	certificate       atomic.Pointer[tls.Certificate]
 }
 
 const fsCreateOrWriteOpMask = fsnotify.Create | fsnotify.Write
@@ -97,12 +97,11 @@ func (w *Sentinel) loadCertificate() error {
 }
 
 func (w *Sentinel) GetCertificate(chi *tls.ClientHelloInfo) (*tls.Certificate, error) {
-	cert, _ := w.certificate.Load().(*tls.Certificate)
-	return cert, nil
+	return w.certificate.Load(), nil
 }
 
 func (w *Sentinel) GetClientCertificate(cri *tls.CertificateRequestInfo) (*tls.Certificate, error) {
-	cert, _ := w.certificate.Load().(*tls.Certificate)
+	cert := w.certificate.Load()
 	if cert == nil {
 		cert = &tls.Certificate{}
 	}

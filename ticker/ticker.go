@@ -23,7 +23,7 @@ type Sentinel struct {
 	certPath, keyPath string
 	duration          time.Duration
 	ticker            func(d time.Duration) ticker
-	certificate       atomic.Value
+	certificate       atomic.Pointer[tls.Certificate]
 }
 
 func New(cert, key string, duration time.Duration) (*Sentinel, error) {
@@ -75,12 +75,11 @@ func (w *Sentinel) Start(ctx context.Context) error {
 }
 
 func (w *Sentinel) GetCertificate(chi *tls.ClientHelloInfo) (*tls.Certificate, error) {
-	cert, _ := w.certificate.Load().(*tls.Certificate)
-	return cert, nil
+	return w.certificate.Load(), nil
 }
 
 func (w *Sentinel) GetClientCertificate(cri *tls.CertificateRequestInfo) (*tls.Certificate, error) {
-	cert, _ := w.certificate.Load().(*tls.Certificate)
+	cert := w.certificate.Load()
 	if cert == nil {
 		cert = &tls.Certificate{}
 	}
